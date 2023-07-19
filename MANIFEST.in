@@ -1,0 +1,2 @@
+global-include youpy/SFX/*
+global-exclude __pycache__
