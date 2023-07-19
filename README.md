@@ -25,7 +25,7 @@ In the past, `pytube` was the go-to library for me for downloading YouTube video
 1. Download source files or clone the repository:
 
 ```bash
-git clone https://github.com/Ryen-042/
+git clone https://github.com/Ryen-042/Youtube-Downloader-Yt-Dlp.git
 ```
 
 2. Install the required dependencies. Use the `make install-reqs` command or or install the dependencies manually:
