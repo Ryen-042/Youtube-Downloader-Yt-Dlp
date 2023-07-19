@@ -182,7 +182,7 @@ def run():
                 continueOption = False
             
             if not continueOption:
-                console.print("[normal1][normal2]Terminating[/]the script and [normal2]opening[/] the [normal2]download directory[/].[/]")
+                console.print("[normal1]The script is now [normal2]terminating[/]. [normal2]Opening[/] the [normal2]download directory[/]...[/]")
                 
                 if listOfFiles := glob("downloads/*.mp4"):
                     os.system(f"explorer /select, \"{max(listOfFiles, key=os.path.getctime)}\"")

@@ -83,6 +83,7 @@ def printStreamsTable(streams: dict[str, list[dict[str, object]]]) -> list[int]:
     
     table.add_column("Category", justify="center", no_wrap=True, vertical="middle")
     table.add_column("Quality",  justify='left')
+    table.add_column("Size",  justify='right')
     table.add_column("ASR",  justify='right')
     table.add_column("TBR",     justify="right")
     table.add_column("FPS", justify="left")
