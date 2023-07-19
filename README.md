@@ -1,24 +1,24 @@
-# Youtube downloader with `yt-dlp`
+# YouTube downloader with `yt-dlp`
 
 YouTube downloader utility powered by `yt-dlp`. Unlike `pytube`, `yt-dlp` offers improved stability and reliability in downloading YouTube videos, with a vibrant and active community maintaining its development.
 
 ## Why `yt-dlp`?
 
-In the past, `pytube` was the go-to library for me for downloading YouTube videos. However, one major drawback was the time it took to fix issues caused by changes in the YouTube APIs. This delay often left me waiting for updates to regain functionality or until someone found a solution in the project's github issues.
+In the past, `pytube` was the go-to library for me to download YouTube videos. However, one major drawback was the time it took to fix issues caused by changes in the YouTube APIs. This delay often left me waiting for updates to regain functionality or until someone found a solution in the project's github issues.
 
 `yt-dlp`, on the other hand, benefits from a huge community that actively maintains and updates the library. With this support, any potential issues resulting from YouTube API changes are promptly addressed, ensuring a more reliable downloading experience.
 
 ## Features
 
-- Download YouTube videos with various stream formats and resolutions.
+- Downloading YouTube videos with various stream formats and resolutions.
 
-- Download from YouTube playlists.
+- Downloading from YouTube playlists.
 
-- Downloads and embedding subtitles, video sections, video thumbnail, and other metadata.
+- Downloading and embedding subtitles, video sections, video thumbnail, and other metadata.
 
 - Selecting two streams for download automatically merges them.
 
-- Implemented simple download history to prevent downloading duplicate videos.
+- Download history to prevent downloading duplicate videos.
 
 ## Getting Started
 
@@ -28,7 +28,7 @@ In the past, `pytube` was the go-to library for me for downloading YouTube video
 git clone https://github.com/Ryen-042/Youtube-Downloader-Yt-Dlp.git
 ```
 
-2. Install the required dependencies. Use the `make install-reqs` command or or install the dependencies manually:
+2. Install the required dependencies. Use the `make install-reqs` command or install the dependencies manually:
 
 ```bash
 pip install -r requirements.txt
@@ -59,7 +59,7 @@ Here are some general usage instructions:
 
 - Provide inputs when prompted.
 
-- Select one or two stream formats by entering the category index followed by the desired format index, separated by spaces. Leave the input empty to skip downloading.
+- Select one or two stream formats by entering the category index, followed by the desired format index, separated by spaces. Leave the input empty to skip downloading.
 
 - The selected video format(s) will be downloaded to the `downloads` folder.
 
