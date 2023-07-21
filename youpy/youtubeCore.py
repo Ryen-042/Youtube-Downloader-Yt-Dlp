@@ -4,7 +4,7 @@ from datetime import datetime
 from rich import box
 from rich.table import Table
 import os, yt_dlp, sqlite3, threading, playsound
-from common import console
+from common import console, SFX_LOC
 import downloadHelper as dh
 import tui
 
@@ -25,7 +25,7 @@ def groupYoutubeStreams(streams: list[dict[str, object]]) -> dict[str, list[dict
     groupedStreams: dict[str, list[dict[str, object]]] = {}
     
     for stream in streams:
-        if (stream.get("format_note") in [None, 'Default']) or (stream["ext"] in ["mhtml", "3gp"]) or ("filesize" not in stream and "filesize_approx" not in stream):
+        if (stream.get("format_note") in [None, 'Default']) or (stream.get("format_note")[:4].upper() == "DASH") or (stream["ext"] in ["mhtml", "3gp"]) or not (stream.get("filesize") or stream.get("filesize_approx")):
             continue
         
         # Can also be filtered with stream["width"] or stream["height"] as both are None for audio only streams.
@@ -81,7 +81,7 @@ def printStreamsTable(streams: dict[str, list[dict[str, object]]]) -> list[int]:
         box=box.DOUBLE,
     )
     
-    table.add_column("Category", justify="center", no_wrap=True, vertical="middle")
+    table.add_column("Category", justify="left", no_wrap=True, vertical="middle")
     table.add_column("Quality",  justify='left')
     table.add_column("Size",  justify='right')
     table.add_column("ASR",  justify='right')
@@ -129,7 +129,7 @@ def printStreamsTable(streams: dict[str, list[dict[str, object]]]) -> list[int]:
     return groupedStreamsCounts
 
 
-def extractSelectedStreams(grouped_streams: dict[str, list[dict[str, object]]], selected_streams_indexes: list[int]) -> tuple[str, int]:
+def extractSelectedStreams(grouped_streams: dict[str, list[dict[str, object]]], selected_streams_indexes: list[int]) -> tuple[str, int, bool]:
     """
     Description:
         Extracts the format ids of the selected streams from the `grouped_streams` dict based on the specified indexes.
@@ -142,7 +142,7 @@ def extractSelectedStreams(grouped_streams: dict[str, list[dict[str, object]]], 
     
     ---
     Returns:
-        `tuple[str, int]`: => A tuple containing the selected stream formats and the total size.
+        `tuple[str, int, bool]`: => A tuple containing the selected stream formats, the total size, and a boolean indicating wether a video format is selected.
     """
     
     streamCategories = list(grouped_streams.keys())
@@ -151,13 +151,13 @@ def extractSelectedStreams(grouped_streams: dict[str, list[dict[str, object]]], 
     if "video" in streamCategories[selected_streams_indexes[0]].split("/")[0]:
         selectedStreams["video"] = grouped_streams[streamCategories[selected_streams_indexes[0]-1]][selected_streams_indexes[1]-1]
 
-        if len(streamCategories) > 2:
+        if len(selected_streams_indexes) > 2:
             selectedStreams["audio"] = grouped_streams[streamCategories[selected_streams_indexes[2]-1]][selected_streams_indexes[3]-1]
         
     else:
         selectedStreams["audio"] = grouped_streams[streamCategories[selected_streams_indexes[0]-1]][selected_streams_indexes[1]-1]
         
-        if len(streamCategories) > 2:
+        if len(selected_streams_indexes) > 2:
             selectedStreams["video"] = grouped_streams[streamCategories[selected_streams_indexes[2]-1]][selected_streams_indexes[3]-1]
     
     selectedFormats = ""
@@ -170,7 +170,7 @@ def extractSelectedStreams(grouped_streams: dict[str, list[dict[str, object]]], 
         selectedFormats += f"{'+' if 'video' in selectedStreams else ''}{selectedStreams['audio']['format_id']}"
         totalSize += selectedStreams["audio"]["filesize"] if "filesize" in selectedStreams["audio"] else selectedStreams["audio"]["filesize_approx"] # type: ignore
     
-    return (selectedFormats, totalSize)
+    return (selectedFormats, totalSize, "video" in selectedStreams)
 
 
 def downloadYoutubeVideo(yt_opts: dict[str, object], meta: dict[str, object], download_location: str, downloaded_before=False) -> int:
@@ -192,6 +192,23 @@ def downloadYoutubeVideo(yt_opts: dict[str, object], meta: dict[str, object], do
     Returns:
         `int` => The status code of the download operation.
     """
+    
+    yt_opts |= {
+        "checkformats": "selected",
+        "addmetadata": True,
+        "embedthumbnail": True,
+        "writesubtitles": True,
+        "writeautomaticsub": True,
+        "embedsubtitles": True,
+        "subtitleslangs": ["ar", "en"],
+        "concurrent_fragment_downloads": "5",
+        "compat_opts": {"no-keep-subs"}
+    }
+    
+    yt_opts["postprocessors"] = yt_opts.get("postprocessors", []) + [
+        {"key": "FFmpegEmbedSubtitle", "already_have_subtitle": False},
+        {"key": "EmbedThumbnail", "already_have_thumbnail": False}
+    ] # type: ignore
     
     with yt_dlp.YoutubeDL(yt_opts) as ydl:
         if statusCode := ydl.download(meta["webpage_url"]):
@@ -305,7 +322,7 @@ def downloadSingleYoutubeVideo(vidLink: str, subDir="") -> int:
             conn.close()
             return -2 # User canceled the download process
         
-        selectedFormats, streamsSize = extractSelectedStreams(groupedStreams, selectedStreamsIndexes)
+        selectedFormats, streamsSize, videoSelected = extractSelectedStreams(groupedStreams, selectedStreamsIndexes)
         streamsSize /= (1024 * 1024)
         
         console.print(f"[normal1]Total streams size: [normal2]{format(streamsSize / 1024, '.2f')+'[/] GB' if streamsSize >= 1024 else format(streamsSize, '.2f')+'[/] MB'}[/]")
@@ -314,20 +331,11 @@ def downloadSingleYoutubeVideo(vidLink: str, subDir="") -> int:
         # https://github.com/yt-dlp/yt-dlp/issues/630#issuecomment-893659460
         yt_opts |= {
             "format": selectedFormats,
-            "checkformats": "selected",
-            "addmetadata": True,
-            "embedthumbnail": True,
-            "writesubtitles": True,
-            "writeautomaticsub": True,
-            "embedsubtitles": True,
-            "subtitleslangs": ["ar", "en"],
             "outtmpl": os.path.join(downloadLocation, "%(title)s.%(ext)s"),
-            "concurrent_fragment_downloads": "5",
-            "postprocessors": [{"key": "FFmpegEmbedSubtitle", "already_have_subtitle": False},
-                               {"key": "FFmpegMetadata", "add_chapters": True, "add_metadata": True, "add_infojson": "if_exists"},
-                               {"key": "EmbedThumbnail", "already_have_thumbnail": False}],
-            "compat_opts": {"no-keep-subs"}
         }
+        
+        if videoSelected:
+            yt_opts["postprocessors"] = [{"key": "FFmpegMetadata", "add_chapters": True, "add_metadata": True, "add_infojson": "if_exists"}]
         
         return downloadYoutubeVideo(yt_opts, meta, downloadLocation, downloadedBefore) # type: ignore
 
@@ -471,26 +479,17 @@ def downloadYoutubePlaylist(playlist_link: str, start_from=0, end_with=0, subDir
         if not selectedStreamsIndexes:
             continue # User skipped the video.
         
-        selectedFormats, streamsSize = extractSelectedStreams(groupedStreams, selectedStreamsIndexes)
+        selectedFormats, streamsSize, videoSelected = extractSelectedStreams(groupedStreams, selectedStreamsIndexes)
         totalDuration += meta["duration"]
         totalSize     += streamsSize
         
         yt_opts |= {
             "format": selectedFormats,
-            "checkformats": "selected",
-            "addmetadata": True,
-            "embedthumbnail": True,
-            "writesubtitles": True,
-            "writeautomaticsub": True,
-            "embedsubtitles": True,
-            "subtitleslangs": ["ar", "en"],
             "outtmpl": os.path.join(downloadLocation, f"({i}). %(title)s.%(ext)s"),
-            "concurrent_fragment_downloads": "5",
-            "postprocessors": [{"key": "FFmpegEmbedSubtitle", "already_have_subtitle": False},
-                               {"key": "FFmpegMetadata", "add_chapters": True, "add_metadata": True, "add_infojson": "if_exists"},
-                               {"key": "EmbedThumbnail", "already_have_thumbnail": False}],
-            "compat_opts": {"no-keep-subs"}
         }
+        
+        if videoSelected:
+            yt_opts["postprocessors"].append({"key": "FFmpegMetadata", "add_chapters": True, "add_metadata": True, "add_infojson": "if_exists"})
         
         thread = threading.Thread(target=downloadYoutubeVideo, args=(yt_opts, meta, downloadLocation, entry["downloaded"]))
         thread.start()
@@ -499,7 +498,7 @@ def downloadYoutubePlaylist(playlist_link: str, start_from=0, end_with=0, subDir
     for thread in downloadThreads:
         thread.join()
     
-    playsound.playsound(os.path.join(os.path.dirname(os.path.abspath(__file__)), "SFX/Yay.mp3").replace("\\", "/"))
+    playsound.playsound(SFX_LOC)
     
     mins, secs = divmod(totalDuration, 60)
     hours = 0
@@ -517,10 +516,5 @@ def downloadYoutubePlaylist(playlist_link: str, start_from=0, end_with=0, subDir
 
 
 # TODO: Download time range -> Videos can be downloaded partially based on either timestamps or chapters using --download-sections
-# --merge-output-format "mp4"
-# -a, --batch-file FILE
-# -P, --paths [TYPES:]PATH
-# -c, --continue
-# --no-write-comments
 # --print-traffic
 # in_download_archive()
