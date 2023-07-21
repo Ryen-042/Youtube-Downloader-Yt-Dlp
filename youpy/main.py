@@ -7,7 +7,7 @@ import sys
 sys.path.append(os.path.dirname(__file__))
 
 from glob import glob
-from common import console
+from common import console, SFX_LOC
 import downloadHelper as dh
 import youtubeCore as ytc
 import tui
@@ -36,7 +36,7 @@ def YoutubeVideoDownloader(video_link: str) -> bool:
     statusCode = ytc.downloadSingleYoutubeVideo(video_link)
     
     if statusCode == 0:
-        playsound.playsound(os.path.join(os.path.dirname(os.path.abspath(__file__)), "SFX/Yay.mp3").replace("\\", "/"))
+        playsound.playsound(SFX_LOC)
     
     continueChoice = tui.yesNoQuestion("Download another video?")
     print("")
@@ -96,7 +96,7 @@ def YoutubeDownloaderFromFileLinks(filename="video-links.txt") -> bool:
             print("")
             ytc.downloadSingleYoutubeVideo(video_link)
     
-    playsound.playsound(os.path.join(os.path.dirname(os.path.abspath(__file__)), "SFX/Yay.mp3").replace("\\", "/"))
+    playsound.playsound(SFX_LOC)
     
     return True
 
