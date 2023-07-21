@@ -20,11 +20,7 @@ In the past, `pytube` was the go-to library for me to download YouTube videos. H
 
 - Download history to prevent downloading duplicate videos.
 
-![image-1](https://github.com/Ryen-042/Youtube-Downloader-Yt-Dlp/blob/main/images/image-1.png?raw=true)
-
-![image-2](https://github.com/Ryen-042/Youtube-Downloader-Yt-Dlp/blob/main/images/image-2.png?raw=true)
-
-![image-3](https://github.com/Ryen-042/Youtube-Downloader-Yt-Dlp/blob/main/images/image-3.png?raw=true)
+![video-download](https://github.com/Ryen-042/Youtube-Downloader-Yt-Dlp/blob/main/images/video-download.gif?raw=true)
 
 ## Getting Started
 
