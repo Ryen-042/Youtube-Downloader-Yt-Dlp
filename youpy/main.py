@@ -1,12 +1,12 @@
 """This is the main entry point for the entire script."""
 
 
-import os, playsound
-import sys
+import os, playsound, sys
+from datetime import datetime
+from glob import glob
 
 sys.path.append(os.path.dirname(__file__))
 
-from glob import glob
 from common import console, SFX_LOC
 import downloadHelper as dh
 import youtubeCore as ytc
@@ -16,7 +16,7 @@ os.chdir(os.path.join(os.path.dirname(os.path.abspath(__file__))))
 os.makedirs(os.path.join(os.path.dirname(os.path.abspath(__file__)), "downloads"), exist_ok=True)
 
 
-def YoutubeVideoDownloader(video_link: str) -> bool:
+def YoutubeVideoDownloader(video_link: str) -> tuple[bool, str]:
     """
     Description:
         Download one youtube video.
@@ -25,15 +25,20 @@ def YoutubeVideoDownloader(video_link: str) -> bool:
         `video_link -> str`: A link to a youtube video.
     ---
     Returns:
-        `bool` => Whether to continue the script with the same mode or end it.
+        `tuple[bool, str]` => Whether to continue the script with the same mode or end it and the name of the download folder.
     """
     
     if not video_link:
         console.print("[normal1]Enter a [normal2]link[/] to a YouTube [normal2]video[/]:[/]", end=" ")
         video_link = input().strip()
+        
+        print("")
     
-    print("")
-    statusCode = ytc.downloadSingleYoutubeVideo(video_link)
+    folderName = datetime.now().strftime("%d-%m-%Y")
+    downloadLocation = os.path.join(os.path.dirname(__file__), "downloads", folderName)
+    os.makedirs(downloadLocation, exist_ok=True)
+    
+    statusCode = ytc.downloadSingleYoutubeVideo(vidLink=video_link, subDir=folderName)
     
     if statusCode == 0:
         playsound.playsound(SFX_LOC)
@@ -41,10 +46,10 @@ def YoutubeVideoDownloader(video_link: str) -> bool:
     continueChoice = tui.yesNoQuestion("Download another video?")
     print("")
     
-    return continueChoice != 0
+    return continueChoice != 0, folderName
 
 
-def YoutubePlaylistDownloader(playlist_link: str, from_video=0, to_video=0, sub_dir="") -> bool:
+def YoutubePlaylistDownloader(playlist_link: str, from_video=0, to_video=0, sub_dir="") -> tuple[bool, str]:
     """
     Description:
         Downloads one or more videos from a youtube playlist.
@@ -60,7 +65,7 @@ def YoutubePlaylistDownloader(playlist_link: str, from_video=0, to_video=0, sub_
     
     ---
     Returns:
-        `bool` => Whether to continue the script with the same mode or not.
+        `tuple[bool, str]` => Whether to continue the script with the same mode or not and the name of the download folder.
     """
     
     if not playlist_link:
@@ -68,14 +73,15 @@ def YoutubePlaylistDownloader(playlist_link: str, from_video=0, to_video=0, sub_
         playlist_link = input().strip()
     
     print("")
-    ytc.downloadYoutubePlaylist(playlist_link, from_video, to_video, sub_dir)
+    _, folderName = ytc.downloadYoutubePlaylist(playlist_link, from_video, to_video, sub_dir)
     
-    continue_option_choice = tui.yesNoQuestion("Download another playlist?")
+    continueChoice = tui.yesNoQuestion("Download another playlist?")
     print("")
-    return continue_option_choice != 0
+    
+    return continueChoice != 0, folderName
 
 
-def YoutubeDownloaderFromFileLinks(filename="video-links.txt") -> bool:
+def YoutubeDownloaderFromFileLinks(filename="video-links.txt") -> tuple[bool, str]:
     """
     Description:
         Download youtube videos with the links from the specified file.
@@ -85,20 +91,30 @@ def YoutubeDownloaderFromFileLinks(filename="video-links.txt") -> bool:
     
     ---
     Returns:
-        `bool` => Whether the links file was found or not.
+        `tuple[bool, str]` => Always returns `False` and the name of the download folder.
     """
     
-    if not os.path.exists(filename):
-        return False
+    if not os.path.exists(filename) and not os.path.getsize(filename):
+        console.print(f"[warning1]The file [warning2]{filename}[/] either [warning2]doesn't exist[/] or is [warning2]empty[/].[/]")
+        
+        return False, ""
     
     with open(filename, "r") as file:
+        folderName = datetime.now().strftime("%d-%m-%Y")
+        downloadLocation = os.path.join(os.path.dirname(__file__), "downloads", folderName)
+        os.makedirs(downloadLocation, exist_ok=True)
+        
         for video_link in file:
+            ytc.downloadSingleYoutubeVideo(vidLink=video_link, subDir=folderName)
             print("")
-            ytc.downloadSingleYoutubeVideo(video_link)
+    
+    # Clearing the file's content.
+    with open(filename, 'w') as file:
+        pass
     
     playsound.playsound(SFX_LOC)
     
-    return True
+    return False, folderName
 
 
 def run():
@@ -149,49 +165,51 @@ def run():
         choice = tui.selectionQuestion("Choose one mode:", ("One Video", "Links From File", "Playlist", "Multiple Video Links"), 0, (1, 2, 3, 4))
         print("")
     
-    if choice == 4:
-        videoLinks = []
-        if len(sys.argv) > 2:
-            videoLinks.extend((" ".join(sys.argv[2:])).split(" "))
-        else:
-            console.print("[normal1]Enter the [normal2]links[/] to the [normal2]youtube videos[/] you want to download (enter a [normal2]blank line[/] to continue):[/]")
-            while True:
-                link = input(f"> Link {len(videoLinks)+1:02}: ").strip()
-                if link == "":
-                    break
-                videoLinks.extend(link.split(" "))
-        
-        dh.writeLinksToFile(videoLinks)
-        print("")
-        
-        choice = 2
-    
     if choice != -999:
+        if choice == 4:
+            videoLinks = []
+            if len(sys.argv) > 2:
+                videoLinks.extend((" ".join(sys.argv[2:])).split(" "))
+            else:
+                console.print("[normal1]Enter the [normal2]links[/] to the [normal2]youtube videos[/] you want to download (enter a [normal2]blank line[/] to continue):[/]")
+                while True:
+                    link = input(f"> Link {len(videoLinks)+1:02}: ").strip()
+                    if link == "":
+                        break
+                    videoLinks.extend(link.split(" "))
+            
+            dh.writeLinksToFile(videoLinks)
+            print("")
+            
+            choice = 2
+
         while True:
             if choice == 1:
-                continueOption = YoutubeVideoDownloader(linkFromTerminalArgument)
+                continueOption, folderName = YoutubeVideoDownloader(linkFromTerminalArgument)
             elif choice == 2:
-                continueOption = YoutubeDownloaderFromFileLinks()
+                continueOption, folderName = YoutubeDownloaderFromFileLinks()
             elif choice == 3:
                 if len(sys.argv) > 4:
-                    continueOption = YoutubePlaylistDownloader(playlist_link = linkFromTerminalArgument, from_video=int(sys.argv[3]), to_video=int(sys.argv[4]))
+                    continueOption, folderName = YoutubePlaylistDownloader(playlist_link = linkFromTerminalArgument, from_video=int(sys.argv[3]), to_video=int(sys.argv[4]))
                 else:
-                    continueOption = YoutubePlaylistDownloader(playlist_link = linkFromTerminalArgument)
+                    continueOption, folderName = YoutubePlaylistDownloader(playlist_link = linkFromTerminalArgument)
             else:
                 console.print("[warning1]Invalid choice. Exiting...[/]")
                 continueOption = False
+                folderName = ""
             
             if not continueOption:
                 console.print("[normal1]The script is now [normal2]terminating[/]. [normal2]Opening[/] the [normal2]download directory[/]...[/]")
                 
-                if listOfFiles := glob("downloads/*.mp4"):
+                if listOfFiles := glob(os.path.join(os.path.dirname(__file__), "downloads", folderName, "*.m[p4][4a]")):
                     os.system(f"explorer /select, \"{max(listOfFiles, key=os.path.getctime)}\"")
                 else:
-                    os.startfile(os.getcwd())
+                    os.startfile(os.path.join(os.path.dirname(__file__), "downloads", folderName))
                 break
             
             # Clear the previously entered video link and terminal arguments if another iteration is happening:
             linkFromTerminalArgument = ""
+            videoLinks = ""
             sys.argv = [sys.argv[0]]
 
 
