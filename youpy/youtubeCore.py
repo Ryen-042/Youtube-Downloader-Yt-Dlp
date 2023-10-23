@@ -3,7 +3,7 @@
 from datetime import datetime
 from rich import box
 from rich.table import Table
-import os, yt_dlp, sqlite3, threading, playsound
+import os, yt_dlp, sqlite3, threading, playsound, subprocess
 from common import console, SFX_LOC
 import downloadHelper as dh
 import tui
@@ -196,19 +196,28 @@ def downloadYoutubeVideo(yt_opts: dict[str, object], meta: dict[str, object], do
     yt_opts |= {
         "checkformats": "selected",
         "addmetadata": True,
-        "embedthumbnail": True,
+        "writethumbnail": True,
         "writesubtitles": True,
         "writeautomaticsub": True,
+        "embedthumbnail": True,
         "embedsubtitles": True,
         "subtitleslangs": ["ar", "en"],
         "concurrent_fragment_downloads": "5",
-        "compat_opts": {"no-keep-subs"}
+        "compat_opts": {"no-keep-subs"},
     }
     
     yt_opts["postprocessors"] = yt_opts.get("postprocessors", []) + [
+        # The order of the postprocessors is important as some of them may affect the output of the previous ones.
+        {
+            "key": "FFmpegMetadata",
+            "add_chapters": True,
+            "add_metadata": True,
+            "add_infojson": "if_exists",
+        },
         {"key": "FFmpegEmbedSubtitle", "already_have_subtitle": False},
-        {"key": "EmbedThumbnail", "already_have_thumbnail": False}
+        {"key": "EmbedThumbnail", "already_have_thumbnail": False},
     ] # type: ignore
+    
     
     with yt_dlp.YoutubeDL(yt_opts) as ydl:
         if statusCode := ydl.download(meta["webpage_url"]):
@@ -216,7 +225,7 @@ def downloadYoutubeVideo(yt_opts: dict[str, object], meta: dict[str, object], do
             
             return statusCode
         
-        filename = f"{os.path.splitext(ydl.prepare_filename(meta))[0]}.mp4"
+        filename = os.path.splitext(ydl.prepare_filename(meta))[0]
         conn = sqlite3.connect(os.path.join(os.path.dirname(__file__), "download_history.db"))
         c = conn.cursor()
         
@@ -232,9 +241,9 @@ def downloadYoutubeVideo(yt_opts: dict[str, object], meta: dict[str, object], do
         conn.commit()
         conn.close()
         
-        if not os.path.exists(f"{os.path.splitext(filename)[0]}.txt"):
-            with open(f"{os.path.splitext(filename)[0]}.txt", "w") as f:
-                f.write(f"Title: {meta['title']}\nLink: {meta['webpage_url']}\nDescription:\n{meta['description']}")
+        if not os.path.exists(f"{filename}.txt"):
+            with open(f"{filename}.txt", "w") as f:
+                f.write(f"Title: {str(meta['title'].encode('utf-8'))}\nLink: {str(meta['webpage_url'].encode('utf-8'))}\nDescription:\n{str(meta['description'].encode('utf-8'))}")
         
         return statusCode
 
@@ -295,12 +304,12 @@ def downloadSingleYoutubeVideo(vidLink: str, subDir="") -> int:
         
         downloadedBefore = False
         if result := c.fetchone():
-            if os.path.isfile(os.path.join(result[2], result[1])):
+            if os.path.isfile(os.path.join(result[2], result[1]+".mp4")) or os.path.isfile(os.path.join(result[2], result[1]+".m4a")):
                 console.print(f"[normal1]The \"[normal2]{meta['title']}[/]\" video has already been downloaded on [normal2]{result[3]}[/].[/]")
                 conn.close()
                 return -4 # File is already downloaded.
             
-            console.print(f"[normal1]The \"[normal2]{meta['title']}[/]\" video has been downloaded before on [normal2]{result[3]}[/] but the file is missing.[/]\n")
+            console.print(f"[normal1]The \"[normal2]{meta['title']}[/]\" video has been downloaded before on [normal2]{result[3]}[/] but the file is missing from '{os.path.join(result[2], result[1])}'.[/]\n")
             if not tui.yesNoQuestion("Do you want to download it again?", 0, [1, 0], ["Yes", "No"], [1, 2]):
                 conn.close()
                 return -3 # File is missing and user doesn't want to download it again.
@@ -325,17 +334,14 @@ def downloadSingleYoutubeVideo(vidLink: str, subDir="") -> int:
         selectedFormats, streamsSize, videoSelected = extractSelectedStreams(groupedStreams, selectedStreamsIndexes)
         streamsSize /= (1024 * 1024)
         
-        console.print(f"[normal1]Total streams size: [normal2]{format(streamsSize / 1024, '.2f')+'[/] GB' if streamsSize >= 1024 else format(streamsSize, '.2f')+'[/] MB'}[/]")
+        console.print(f"[normal1]Total file size: [normal2]{format(streamsSize / 1024, '.2f')+'[/] GB' if streamsSize >= 1024 else format(streamsSize, '.2f')+'[/] MB'}[/]")
         print("")
-        
+
         # https://github.com/yt-dlp/yt-dlp/issues/630#issuecomment-893659460
         yt_opts |= {
             "format": selectedFormats,
             "outtmpl": os.path.join(downloadLocation, "%(title)s.%(ext)s"),
         }
-        
-        if videoSelected:
-            yt_opts["postprocessors"] = [{"key": "FFmpegMetadata", "add_chapters": True, "add_metadata": True, "add_infojson": "if_exists"}]
         
         return downloadYoutubeVideo(yt_opts, meta, downloadLocation, downloadedBefore) # type: ignore
 
@@ -373,7 +379,7 @@ def printPlaylistTable(playlist_entries: list[dict[str, str | int]]) -> None:
     print("")
 
 
-def downloadYoutubePlaylist(playlist_link: str, start_from=0, end_with=0, subDir="") -> int:
+def downloadYoutubePlaylist(playlist_link: str, start_from=0, end_with=0, subDir="") -> tuple[int, str]:
     """
     Description:
         Downloads one or more videos from a youtube playlist.
@@ -389,7 +395,7 @@ def downloadYoutubePlaylist(playlist_link: str, start_from=0, end_with=0, subDir
     
     ---
     Returns:
-        `int` => Always returns 0.
+        `tuple[int, str]` => Always returns the status code `0` (success) and the name of the download folder.
     """
     
     yt_opts = {
@@ -407,7 +413,9 @@ def downloadYoutubePlaylist(playlist_link: str, start_from=0, end_with=0, subDir
     if playlistMeta is None:
         raise ConnectionAbortedError("No playlist found at the given link. Please check your internet connection and the playlist link.")
     
-    downloadLocation = os.path.join(os.path.dirname(__file__), "downloads", subDir or playlistMeta["title"])
+    folderName = subDir or playlistMeta["title"]
+    
+    downloadLocation = os.path.join(os.path.dirname(__file__), "downloads", folderName)
     os.makedirs(downloadLocation, exist_ok=True)
     
     playlistEntries = [{"id": entry["id"], "title": entry["title"], "duration": entry["duration"], "url": entry["url"]} for entry in playlistMeta["entries"]]
@@ -488,9 +496,6 @@ def downloadYoutubePlaylist(playlist_link: str, start_from=0, end_with=0, subDir
             "outtmpl": os.path.join(downloadLocation, f"({i}). %(title)s.%(ext)s"),
         }
         
-        if videoSelected:
-            yt_opts["postprocessors"].append({"key": "FFmpegMetadata", "add_chapters": True, "add_metadata": True, "add_infojson": "if_exists"})
-        
         thread = threading.Thread(target=downloadYoutubeVideo, args=(yt_opts, meta, downloadLocation, entry["downloaded"]))
         thread.start()
         downloadThreads.append(thread)
@@ -509,12 +514,10 @@ def downloadYoutubePlaylist(playlist_link: str, start_from=0, end_with=0, subDir
     totalSize /= (1024 * 1024)
     
     console.print(f"[normal1]Total content size:     [normal2]{format(totalSize / 1024, '.2f')+'[/] GB' if totalSize >= 1024 else format(totalSize, '.2f')+'[/] MB'}[/]")
-    console.print(f"[normal1]Total content duration: {'[normal2]'+format(hours, '02')+'[/]:' if hours else ''}[normal2]{mins:02}[/]:[normal2]{secs:02}[/][/]\n")
+    console.print(f"[normal1]Total content duration: {'[normal2]'+format(hours, '02')+'[/]:' if hours else ''}[normal2]{mins:02}[/]:[normal2]{secs:02}[/][/]mins")
     print("")
     
-    return 0
+    return 0, folderName
 
 
-# TODO: Download time range -> Videos can be downloaded partially based on either timestamps or chapters using --download-sections
-# --print-traffic
-# in_download_archive()
+# TODO: Download part of a video -> Videos can be downloaded partially based on either timestamps or chapters using --download-sections
