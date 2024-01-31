@@ -10,15 +10,19 @@ In the past, `pytube` was the go-to library for me to download YouTube videos. H
 
 ## Features
 
-- Downloading YouTube videos with various stream formats and resolutions.
+- Downloading YouTube videos with various stream formats and resolution options.
 
 - Downloading from YouTube playlists.
 
-- Downloading and embedding subtitles, video sections, video thumbnail, and other metadata.
+- Embedding subtitles, video sections, video thumbnail, and other metadata.
 
 - Selecting two streams for download automatically merges them.
 
 - Download history to prevent downloading duplicate videos.
+
+- Cool progress bar for the multi-files download modes.
+
+- Display video thumbnail in the terminal (pass `--show-thumbnail` or `-st` to enable).
 
 ![video-download](https://github.com/Ryen-042/Youtube-Downloader-Yt-Dlp/blob/main/images/video-download.gif?raw=true)
 
@@ -35,7 +39,7 @@ git clone https://github.com/Ryen-042/Youtube-Downloader-Yt-Dlp.git
 ```bash
 pip install -r requirements.txt
 ```
-You can also install the package from the source files using the `make install` command or by running `pip install .` in the project directory:
+You can also install the package from the source files using the `make install` command or by running `pip install .` in the project directory.
 
 ## Usage
 

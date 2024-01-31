@@ -2,130 +2,316 @@
 This module provides functions for selecting, formatting, and downloading streams.
 """
 
-import os
-from common import console
+import os, threading, yt_dlp, sqlite3, re, time, playsound
+from collections import OrderedDict
+from datetime import datetime
+from glob import glob
 
+from common import console, SFX_LOC
+import tui
 
-def selectStreams(categories_lengths: list[int]) -> list[int]:
+class ProgressBar:
     """
     Description:
-        Prompts the user to select from the available stream options. User can select one or two stream formats by specifying the category index followed by the desired format index, separated by spaces.
-        If the user wishes to skip downloading, they can simply leave the input empty.
-        
-        For example, if the user wishes to download the `first` stream format in the `third` category, they can simply enter `3 1` and press enter.
-        
-        If the user also wishes to download the `second` stream format in the `fifth` category, they can simply enter `3 1 5 2` and press enter.
-    
+        A class that provides a progress bar that can be used to display the progress of multiple downloads.
     ---
     Parameters:
-        `categories_lengths` -> list[int]`: The number of streams in each category.
-    
-    ---
-    Returns:
-        `list[int]` => A list containing the selected category/ies and resolution/s.
+        `downloads_dict -> OrderedDict[int, dict]`: A dictionary containing the information of the files being downloaded.
     """
     
-    validChoices = False
-    while not validChoices:
-        console.print("[normal1]Select [normal2]one[/] or [normal2]two[/] stream formats by specifying the [normal2]category index[/] followed by the desired [normal2]format index[/], separated by spaces.\nIf you wish to skip downloading, simply [normal2]leave the input empty[/]:[/] ", end='')
-        choices = input().strip().split(" ")
-        print("")
-
-        # If choices is empty (i.e., [""]) return []
-        if len(choices) == 1 and not choices[0]:
-            return []
-
-        if len(choices) > 4:
-            console.print(f"[warning1]Invalid input. Requested at most [warning2]4[/] numbers, but got [warning2]{len(choices)}[/] inputs[/]\n")
-            continue
-
-        elif len(choices) < 2:
-            console.print(f"[warning1][warning2]Not enough data[/]. Requested at least [warning2]2[/] numbers, but got [warning2]{len(choices)}[/] input.[/]\n")
-            continue
-
-        try:
-            if int(choices[0]) <= len(categories_lengths):
-                if int(choices[1]) <= categories_lengths[int(choices[0]) - 1]:
-                    if len(choices) == 2:
-                        validChoices = True
-                    
-                    elif int(choices[2]) <= len(categories_lengths):
-                        if int(choices[3]) <= categories_lengths[int(choices[2]) - 1]:
-                            validChoices = True
-                        
-                        else:
-                            console.print("[warning1][warning2]Error Encountered[/]. Make sure the [warning2]second[/] selected [warning2]format index[/] is correct.[/]\n")
-                    
-                    else:
-                        console.print("[warning1][warning2]Error Encountered[/]. Make sure the [warning2]second[/] selected [warning2]category index[/] is correct.[/]\n")
-                
-                else:
-                    console.print("[warning1][warning2]Error Encountered[/]. Make sure the [warning2]first[/] selected [warning2]format index[/] is correct.[/]\n")
+    enable_progress_bar = False
+    downloads_dict: OrderedDict[int, dict] = OrderedDict()
+    throttle_lock = threading.Lock()
+    throttle_timespan = 0.2
+    last_execution_time = 0
+    
+    @classmethod
+    def progressBarHook(cls, progress: dict) -> None:
+        """
+        Description:
+            A hook to be used with `yt_dlp` to update the downloads_dict with the progress information.
+        ---
+        Details:
+            Yt_dlp parses and returns a dictionary containing the following information:
             
-            else:
-                console.print("[warning1][warning2]Error Encountered[/]. Make sure the [warning2]first[/] selected [warning2]category index[/] is correct.[/]\n")
+            Parameter            | Type  | Description
+            ---------------------|-------|------------
+            status               | str   | Possible values: `'downloading'`, `'finished'`, `'error'`.
+            info_dict            | dict  | Contains extracted information about the downloading file.
+            filename             | str   | The final filename.
+            downloaded_bytes     | int   | The number of bytes downloaded so far.
+            total_bytes          | int   | The total number of bytes to download.
+            total_bytes_estimate | int   | The estimated total number of bytes to download.
+            tmpfilename          | str   | The filename we are currently writing to.
+            elapsed              | float | The number of seconds passed since the download started.
+            eta                  | float | The estimated time in seconds until the download is finished.
+            speed                | float | The download speed in bytes/second.
+        ---
+        Parameters:
+            `progress` -> dict: A dictionary containing the progress information.
+        """
         
-        except Exception:
-            console.print("[warning1]Invalid input. You have entered something wrong.[/]\n")
+        id = progress.get("info_dict", {}).get("id", "-1")
+        
+        if progress['status'] == 'finished':
+            if id in cls.downloads_dict:
+                cls.downloads_dict[id].update({"status": "finished"})
+        
+        elif progress['status'] == 'downloading':
+            downloaded_bytes = progress.get('downloaded_bytes', -1) or -1
+            total_bytes = progress.get('total_bytes', -1) or -1 # Avoid division by zero
+            
+            if total_bytes > 1:
+                remaining_bytes = total_bytes - downloaded_bytes
+            else:
+                total_bytes = -1
+                remaining_bytes = -1
+            
+            download_speed = progress.get('speed', -1) or -1
+            eta_seconds = progress.get('eta', -1) or -1
+            
+            if id not in cls.downloads_dict:
+                cls.downloads_dict[id] = {}
+            
+            cls.downloads_dict[id].update({
+                "status": "downloading",
+                "total_bytes": total_bytes,
+                "remaining_bytes": remaining_bytes,
+                "download_speed": download_speed,
+                "eta_seconds": eta_seconds
+            })
+        
+        if not cls.enable_progress_bar:
+            return
+        
+        with cls.throttle_lock:
+            current_time = time.time()
+            if current_time - cls.last_execution_time >= cls.throttle_timespan:
+                cls.displayProgressBars()
+                
+                cls.last_execution_time = current_time
     
-    return [int(choice) for choice in choices] # type: ignore
+    
+    @staticmethod
+    def _formatEta(seconds):
+        """Format ETA in seconds into a human-readable string."""
+        if seconds is None or seconds < 0:
+            return "???"
+        
+        if seconds < 60:
+            return f"{int(seconds)}s"
+        elif seconds < 3600:
+            return f"{int(seconds // 60)}m {int(seconds % 60)}s"
+        else:
+            return f"{int(seconds // 3600)}h {int((seconds % 3600) // 60)}m"
+    
+    
+    @staticmethod
+    def _formatBytes(bytes: float) -> str:
+        """Format bytes into a human-readable string."""
+        
+        if bytes < 1:
+            return "???"
+        
+        for unit in ['B', 'KB', 'MB', 'GB']:
+            if bytes < 1024.0:
+                return f"{bytes:.2f} {unit}"
+            
+            bytes /= 1024.0
+        
+        return f"{bytes:.2f} TB"
+    
+    
+    @classmethod
+    def getProgressBarText(cls, filesize: float, bytes_remaining: float, download_speed: float, eta_seconds: float) -> str:
+        """Returns a styled progress bar text."""
+        
+        # Styling
+        char_empty   = "░" # ▄ ░ ▒ ▓
+        char_fill    = "█"
+        
+        # Sizing
+        scale        = 0.35
+        columns = os.get_terminal_size().columns
+        max_width    = int(columns * scale)
+        fill_width   = int(round(max_width * (filesize - bytes_remaining) / filesize))
+        remaining_width = max_width - fill_width
+        
+        # Data
+        total_filesize  = cls._formatBytes(filesize)
+        downloaded_size = cls._formatBytes(filesize - bytes_remaining)
+        percent      = ((filesize - bytes_remaining) / filesize) * 100
+        
+        # Text
+        progress_text = fr"\[[normal2]{downloaded_size:>10}[/] of [normal2]{total_filesize:>10}[/]] at [normal2]{cls._formatBytes(download_speed):>10}[/]/s"
+        progress_bar = f"[exists]{char_fill * fill_width}[/][normal2]{char_empty * remaining_width}[/]"
+        eta = f"ETA: [normal2]{cls._formatEta(eta_seconds):8}[/]"
+        final_text = f"[normal1]{progress_text} | {progress_bar} | {eta} ([normal2]{format(percent, '.2f')}%[/])[/]\033[K"
+        
+        return final_text
+    
+    
+    @classmethod
+    def _printProgressBar(cls, downloads_dict: OrderedDict[int, dict]):
+        """Prints the progress bars for all the downloads."""
+        
+        progress_bars_texts = []
+        for id, download_info in downloads_dict.items():
+            progress_bars_texts.append(
+                cls.getProgressBarText(
+                    filesize=download_info.get("total_bytes", -1) or -1,
+                    bytes_remaining=download_info.get("remaining_bytes", -1) or -1,
+                    download_speed=download_info.get("download_speed", -1) or -1,
+                    eta_seconds=download_info.get("eta_seconds", -1) or -1
+            ))
+        
+        console.print("\n".join(progress_bars_texts))
+    
+    
+    @classmethod
+    def _moveCursorUp(cls, downloads_dict: OrderedDict[int, dict]):
+        """Moves the cursor up and clears the area of the finished progress bars."""
+        
+        fishied_ids = {id for id, download_info in downloads_dict.items() if download_info.get("status", "downloading") == "finished"}
+        
+        # To prevent flickering, we don't clear the area of the working progress bars.
+        finished_progress_bars_clearing_text = f"\033[F\033[K" * len(fishied_ids)
+        working_progress_bars_clearing_text = f"\033[F" * (len(downloads_dict) - len(fishied_ids))
+        print(finished_progress_bars_clearing_text + working_progress_bars_clearing_text, end="\r")
+        
+        # Remove the finished downloads from the downloads_dict and finshed_ids.
+        for id in fishied_ids:
+            del cls.downloads_dict[id]
+    
+    
+    @classmethod
+    def displayProgressBars(cls) -> None:
+        """Executes the progress bar printing and cursor moving functions."""
+        
+        downloads_dict = {}
+        
+        # Because cls.dowloads_dict is not guranteed to be constant during the execution of this function, we need to make a copy.
+        downloads_dict = cls.downloads_dict.copy()
+        
+        # Print the progress bars and move up the cursor and clear the area of the finished progress bars.
+        cls._printProgressBar(downloads_dict)
+        cls._moveCursorUp(downloads_dict)
 
 
-def getPlaylistStartAndEnd(playlist_count: int, start_from=0, end_with=0) -> list[int]:
+def downloadFromYoutube(yt_opts: dict[str, object], meta: dict[str, object], file_extension: str, download_location: str,
+                         downloaded_before=False, write_desc=False, commitChanges=True) -> int:
     """
     Description:
-        Prompts the user to enter two numbers representing from where to start and end downloading playlist videos.
-        
-        If no numbers are given or if they are not valid numbers, it asks the user again.
-    
+        Downloads a YouTube video using the provided options, updates download history database, stores the video description into a text file.
     ---
     Parameters:
-        `playlist_count -> int`: The count of the videos in the playlist.
-        
-        `start_from -> int`: The playlist entry number to start downloading from.
-        
-        `end_with -> int`: The last playlist entry to download.
+        `yt_opts -> dict[str, object]`: A dict containing options for configuring the behavior of the `yt-dlp` downloader.
+
+        `meta -> dict[str, object]`: A dict containing YouTube video metadata.
+
+        `file_extension -> str`: The expected extension of the file being downloaded.
+
+        `download_location -> str`: Specifies where the downloaded video will be saved
+
+        `downloaded_before -> bool`: A flag that indicates whether the video has been downloaded before.
+            If `True`, the function will update the download history instead of adding a new record.
+
+        `write_desc -> bool`: A flag that indicates whether to write the video description to a text file or not.
+
+        `commitChanges: bool`: A flag that indicates whether to commit the changes to the database or not.
+        An optional parameter to specify a connection to a sqlite3 database.
+            If `False`, it is the responsibility of the caller to commit the changes to the database.
+
     ---
     Returns:
-        A tuple containing two numbers representing the first and last video numbers.
+        `int` => The status code of the download operation.
     """
-    
-    if not start_from or not end_with:
-        console.print("[normal1]Enter two nubmers separated by a [normal2]space[/] to specify the [normal2]start[/] and [normal2]end[/] of the playlist to download or [normal2]leave empty[/] to download the whole playlist: [/]", end="")
-        startEnd = input().strip().split(" ")
-    elif start_from == -1 and end_with in [-1, 0]:
-        return [1, playlist_count]
+
+    yt_opts |= {
+        "checkformats": "selected",
+        "addmetadata": True,
+        "writethumbnail": True,
+        "writesubtitles": True,
+        "writeautomaticsub": True,
+        "embedthumbnail": True,
+        "embedsubtitles": True,
+        "subtitleslangs": ["ar", "en"],
+        "concurrent_fragment_downloads": "5",
+        "compat_opts": {"no-keep-subs"},
+    }
+
+    yt_opts["postprocessors"] = yt_opts.get("postprocessors", []) + [
+        # The order of the postprocessors is important as some of them may affect the output of the previous ones.
+        {
+            "key": "FFmpegMetadata",
+            "add_chapters": True,
+            "add_metadata": True,
+            "add_infojson": "if_exists",
+        },
+        {"key": "FFmpegEmbedSubtitle", "already_have_subtitle": False},
+        {"key": "EmbedThumbnail", "already_have_thumbnail": False},
+    ] # type: ignore
+
+
+    with yt_dlp.YoutubeDL(yt_opts) as ydl:
+        if statusCode := ydl.download(meta["webpage_url"]):
+            console.print(f"[warning1]Warning! Download operation exitted with status code {statusCode}.[/]")
+
+            return statusCode
+
+    filename = os.path.splitext(os.path.basename(ydl.prepare_filename(meta)))[0]
+
+    conn = sqlite3.connect(os.path.join(os.path.dirname(__file__), "download_history.db"))
+    c = conn.cursor()
+
+    if downloaded_before:
+        query = "UPDATE History SET filename = :filename, location = :location, date = :date WHERE video_id = :video_id"
+
     else:
-        startEnd = [start_from, end_with]
-    
-    while True:
-        # The user left the input blank, meaning they want to download all the videos in the playlist.
-        if len(startEnd) == 1 and not startEnd[0]:
-            return [1, playlist_count]
+        query = "INSERT INTO History VALUES (:video_id, :filename, :location, :date)"
 
-        elif len(startEnd) == 2:
-            try:
-                if int(startEnd[0]) > playlist_count or int(startEnd[1]) > playlist_count:
-                    console.print(f"\n[warning1]The [warning2]start[/] and [warning2]end[/] cannot be greater than the [warning2]limit[/] ([warning2]{playlist_count}[/]). Your input: [warning2]{startEnd}[/]\nTry again: [/]", end="")
+    c.execute(query, {"video_id": meta["id"], "filename": f"{filename}.{file_extension}", "location": download_location,
+                        "date": datetime.now().strftime("%d/%m/%Y %H:%M:%S")})
 
-                # elif start_end[0] == 0:
-                    # return [1, int(start_end[1])]
+    if commitChanges:
+        conn.commit()
 
-                # If end number is -1, then return the start and limit
-                elif int(startEnd[1]) == -1:
-                    return [int(startEnd[0]), playlist_count]
+    conn.close()
 
-                elif int(startEnd[0]) > int(startEnd[1]):
-                    console.print(f"\n[warning1]The [warning2]start[/] cannot be greater than the [warning2]end[/]. Your input: [warning2]{startEnd}[/]\nTry again: [/]", end="")
+    if write_desc and (not os.path.exists(f"{filename}.txt") or os.path.getsize(f"{filename}.txt") == 0):
+        with open(f"{filename}.txt", "w") as f:
+            f.write(f"Title: {meta['title'].encode('utf-8')}\n\nLink: {meta['webpage_url'].encode('utf-8')}\n\nDescription:\n\n{meta['description'].encode('utf-8')}") # type: ignore
 
-                else:
-                    return [int(startEnd[0]), int(startEnd[1])]
-            except Exception:
-                console.print(f"\n[warning1]Invalid input: [warning2]{startEnd}[/]\nTry again: [/]", end="")
-        else:
-            console.print(f"\n[warning1]Invalid input. Requested [warning2]two numbers[/] but got [warning2]{len(startEnd)}[/] inputs: [warning2]{startEnd}[/]\nTry again: [/]", end="")
+    return statusCode
 
-        startEnd = input().strip().split(" ")
+
+def idExtractor(url):
+    """
+    Description:
+        Extracts the video ID from a YouTube URL.
+    ---
+    Args:
+        `url -> str`: A YouTube video URL.
+    ---
+    Parameters:
+        str or None: The video ID if found, None otherwise.
+    ---
+    Returns:
+        `str | None`: The video ID if found, None otherwise.
+    """
+    url = url.strip()
+
+    # Define the URL pattern for YouTube links
+    url_pattern = re.compile(r'https?://(?:www\.)?(?:m\.)?(?:youtu(?:be\.com/(?:watch\?v=|embed/|shorts/)|\.be/)|youtube\.com/v/)([\w\-_]*)')
+
+    # Find the match in the text
+    match = url_pattern.search(url)
+
+    if match:
+        video_id = match.group(1)
+        return video_id
+    else:
+        return None
 
 
 def writeLinksToFile(video_links: list[str], filename="video-links.txt") -> None:
@@ -144,3 +330,50 @@ def writeLinksToFile(video_links: list[str], filename="video-links.txt") -> None
     
     with open(pathToLinksFile, "w", encoding='utf-8') as linksFile:
         linksFile.write("\n".join(video_links))
+
+
+def initDatabase():
+    """Creates the database if it doesn't exist and returns a connection to it."""
+
+    conn = sqlite3.connect(os.path.join(os.path.dirname(__file__), "download_history.db"))
+    c = conn.cursor()
+
+    c.execute("""CREATE TABLE IF NOT EXISTS History (
+        video_id TEXT PRIMARY KEY,
+        filename text,
+        location text,
+        date text)""")
+
+    return conn
+
+
+def isFilePresent(directory, full_name, download_date) -> bool:
+    """Checks if the specified file exists in the specified directory and prompts the user to download it again if it doesn't."""
+
+    if glob(f"{os.path.join(directory, os.path.splitext(full_name)[0])}*"):
+        console.print(f"[normal1]The \"[normal2]{full_name}[/]\" file has already been downloaded on [normal2]{download_date}[/].[/]")
+        console.print(f"[normal1]File location: '[normal2]{os.path.join(directory, full_name)}[/]'[/]\n""")
+
+        return True # File is found.
+
+    console.print(f"[normal1]The \"[normal2]{full_name}[/]\" file has been downloaded before on [normal2]{download_date}[/] but the file is missing.[/]")
+    console.print(f"[normal1]Last known location is: '[normal2]{os.path.join(directory, full_name)}[/]'[/]\n")
+
+    # File is missing and user either wants to download it again or not.
+    return not tui.yesNoQuestion("Do you want to download it again?", 0, [True, False], ["Yes", "No"], [1, 2])
+
+
+def showResults(totalSize, totalDuration):
+    mins, secs = divmod(totalDuration, 60)
+    hours = 0
+    if mins > 59:
+        hours, mins = divmod(mins, 60)
+    hours, mins, secs = int(hours), int(mins), int(secs)
+    
+    totalSize /= (1024 * 1024)
+    
+    console.print("[normal1]Download finished.[/]\033[K")
+    console.print(f"[normal1]Total media size: [normal2]{format(totalSize / 1024, '.2f')+'[/] GB' if totalSize >= 1024 else format(totalSize, '.2f')+'[/] MB'}[/]")
+    console.print(f"[normal1]Total duration  : {'[normal2]'+format(hours, '02')+'[/]:' if hours else ''}[normal2]{mins:02}[/]:[normal2]{secs:02}[/][/]\n")
+    
+    playsound.playsound(SFX_LOC)

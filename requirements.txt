@@ -1,4 +1,5 @@
 yt_dlp
-playsound==1.2.2
 questionary
 rich
+climage
+playsound==1.2.2

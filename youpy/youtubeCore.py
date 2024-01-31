@@ -1,266 +1,31 @@
-"""This module provides functions for interacting with yt-dlp."""
+"""This module contains various download functions defining pipelines tailored for different download modes."""
 
+import os, yt_dlp, concurrent.futures
 from datetime import datetime
-from rich import box
-from rich.table import Table
-import os, yt_dlp, sqlite3, threading, playsound, subprocess
-from common import console, SFX_LOC
+from glob import glob
+
+from common import console
 import downloadHelper as dh
+import streamsHelper as sh
 import tui
 
-def groupYoutubeStreams(streams: list[dict[str, object]]) -> dict[str, list[dict[str, object]]]:
+
+def downloadSingleVideo(vidLink: str, subDir="", write_desc=False) -> int:
     """
     Description:
-        Groups the streams of a youtube video into `streamType/extension` categories. Streams are sorted by `yt-dlp` default behavior.
-    ---
-    Parameters:
-        `streams -> list[dict[str, object]]`: A dictionary containing the metadata of the youtube video.
-    ---
-    Returns:
-        `dict[str, list[dict[str, object]]]` => A dictionary containing the grouped streams in this format `{"stream-type/ext": list[stream]}`.
-        
-        For example: `{"audio/m4a": [{}], "audio/webm": [{}], "video/mp4": [{}], "audio-video/mp4": [{}]}`
-    """
-    
-    groupedStreams: dict[str, list[dict[str, object]]] = {}
-    
-    for stream in streams:
-        if (stream.get("format_note") in [None, 'Default']) or (stream.get("format_note")[:4].upper() == "DASH") or (stream["ext"] in ["mhtml", "3gp"]) or not (stream.get("filesize") or stream.get("filesize_approx")):
-            continue
-        
-        # Can also be filtered with stream["width"] or stream["height"] as both are None for audio only streams.
-        if stream["resolution"] == "audio only":
-            if f"audio/{stream['ext']}" in groupedStreams:
-                groupedStreams[f"audio/{stream['ext']}"].append(stream)
-            
-            else:
-                groupedStreams[f"audio/{stream['ext']}"] = [stream]
-        
-        elif stream["vcodec"] != "none" and stream["acodec"] == "none":
-            if f"video/{stream['ext']}" not in groupedStreams:
-                groupedStreams[f"video/{stream['ext']}"] = [stream]
-            
-            else:
-                groupedStreams[f"video/{stream['ext']}"].append(stream)
-        
-        elif f"audio-video/{stream['ext']}" not in groupedStreams:
-            groupedStreams[f"audio-video/{stream['ext']}"] = [stream]
-        
-        else:
-            groupedStreams[f"audio-video/{stream['ext']}"].append(stream)
-    
-    # # Sort streams by filesize -> Not needed as yt-dlp sorts streams by default.
-    # for groupName in groupedStreams:
-    #     groupedStreams[groupName].sort(key = lambda x: x["filesize"] if x["filesize"] else x["filesize_approx"])
-    
-    return groupedStreams
-
-
-def printStreamsTable(streams: dict[str, list[dict[str, object]]]) -> list[int]:
-    """
-    Description:
-        Prints the grouped streams of a youtube video in a tabular format.
-    ---
-    Parameters:
-        `streams -> dict[str, list[dict[str, object]]]`: A dictionary containing the grouped streams of a youtube video.
-    ---
-    Returns:
-        `list[int]` => A list containing the number of streams in each category.
-    """
-    
-    bgColor = " on #00005f"
-    
-    table = Table(
-        style=f"bold blue1{bgColor}",
-        row_styles=[
-            f"bold medium_purple3{bgColor}",
-            f"bold dark_violet{bgColor}",
-        ],
-        header_style=f"bold deep_pink1{bgColor}",
-        show_lines=True,
-        box=box.DOUBLE,
-    )
-    
-    table.add_column("Category", justify="left", no_wrap=True, vertical="middle")
-    table.add_column("Quality",  justify='left')
-    table.add_column("Size",  justify='right')
-    table.add_column("ASR",  justify='right')
-    table.add_column("TBR",     justify="right")
-    table.add_column("FPS", justify="left")
-    table.add_column("vCodec", justify="left")
-    table.add_column("aCodec", justify="left")
-    
-    groupedStreamsCounts = []
-    for i, groupName in enumerate(streams, 1):
-        groupedStreamsCounts.append(len(streams[groupName]))
-        
-        qualities   = []
-        sizes       = []
-        audioSampleRates = [] # Hz
-        totalBitrates = []    # kbps
-        framerates = []
-        vCodecs     = []
-        aCodecs     = []
-        
-        for j, stream in enumerate(streams[groupName], 1):
-            qualities.append(f"{j}) {stream['format_note']}")
-            
-            streamSize: int = stream["filesize"] or stream["filesize_approx"] # type: ignore
-            if streamSize > 1023*1024*1024:
-                sizes.append(f"{round(streamSize/1024/1024/1024, 2):7.2f} GB")
-            
-            else:
-                sizes.append(f"{streamSize/1024/1024:7.2f} MB")
-            
-            audioSampleRates.append(f"{int(stream['asr']//1000)} kHz" if stream["asr"] else "") # type: ignore
-            totalBitrates.append(f"{int(stream['tbr'])} kbps") # type: ignore
-            framerates.append(str(stream['fps']) if stream['fps'] else "")
-            vCodecs.append(stream['vcodec'] if stream['vcodec'] != "none" else "")
-            aCodecs.append(stream['acodec'] if stream['acodec'] != "none" else "")
-        
-        table.add_row(f"({i}) {groupName}", "\n".join(qualities),
-                      "\n".join(sizes), "\n".join(audioSampleRates),
-                      "\n".join(totalBitrates), "\n".join(framerates),
-                      "\n".join(vCodecs), "\n".join(aCodecs))
-    
-    console.print(table)
-    print("")
-    
-    return groupedStreamsCounts
-
-
-def extractSelectedStreams(grouped_streams: dict[str, list[dict[str, object]]], selected_streams_indexes: list[int]) -> tuple[str, int, bool]:
-    """
-    Description:
-        Extracts the format ids of the selected streams from the `grouped_streams` dict based on the specified indexes.
-    ---
-    Parameters:
-        - `grouped_streams -> dict[str, list[dict[str, object]]]`: A dict containing grouped streams, where the keys are stream
-            categories and the values are lists of streams within each category.
-        
-        - `selected_streams_indexes -> list[int]`: A list of indexes that specify which streams to extract from the `grouped_streams` dict.
-    
-    ---
-    Returns:
-        `tuple[str, int, bool]`: => A tuple containing the selected stream formats, the total size, and a boolean indicating wether a video format is selected.
-    """
-    
-    streamCategories = list(grouped_streams.keys())
-    selectedStreams: dict[str, dict[str, object]] = {}
-    
-    if "video" in streamCategories[selected_streams_indexes[0]].split("/")[0]:
-        selectedStreams["video"] = grouped_streams[streamCategories[selected_streams_indexes[0]-1]][selected_streams_indexes[1]-1]
-
-        if len(selected_streams_indexes) > 2:
-            selectedStreams["audio"] = grouped_streams[streamCategories[selected_streams_indexes[2]-1]][selected_streams_indexes[3]-1]
-        
-    else:
-        selectedStreams["audio"] = grouped_streams[streamCategories[selected_streams_indexes[0]-1]][selected_streams_indexes[1]-1]
-        
-        if len(selected_streams_indexes) > 2:
-            selectedStreams["video"] = grouped_streams[streamCategories[selected_streams_indexes[2]-1]][selected_streams_indexes[3]-1]
-    
-    selectedFormats = ""
-    totalSize = 0
-    if "video" in selectedStreams:
-        selectedFormats = f"{selectedStreams['video']['format_id']}"
-        totalSize += selectedStreams["video"]["filesize"] if "filesize" in selectedStreams["video"] else selectedStreams["video"]["filesize_approx"] # type: ignore
-    
-    if "audio" in selectedStreams:
-        selectedFormats += f"{'+' if 'video' in selectedStreams else ''}{selectedStreams['audio']['format_id']}"
-        totalSize += selectedStreams["audio"]["filesize"] if "filesize" in selectedStreams["audio"] else selectedStreams["audio"]["filesize_approx"] # type: ignore
-    
-    return (selectedFormats, totalSize, "video" in selectedStreams)
-
-
-def downloadYoutubeVideo(yt_opts: dict[str, object], meta: dict[str, object], download_location: str, downloaded_before=False) -> int:
-    """
-    Description:
-        Downloads a YouTube video using the provided options, updates download history database, stores the video description into a text file.
-    ---
-    Parameters:
-        `yt_opts -> dict[str, object]`: A dict containing options for configuring the behavior of the `yt-dlp` downloader.
-        
-        `meta -> dict[str, object]`: A dict containing YouTube video metadata.
-        
-        `download_location -> str`: Specifies where the downloaded video will be saved
-        
-        `downloaded_before -> bool`: A flag that indicates whether the video has been downloaded before.
-            If `True`, the function will update the download history instead of adding a new record.
-    
-    ---
-    Returns:
-        `int` => The status code of the download operation.
-    """
-    
-    yt_opts |= {
-        "checkformats": "selected",
-        "addmetadata": True,
-        "writethumbnail": True,
-        "writesubtitles": True,
-        "writeautomaticsub": True,
-        "embedthumbnail": True,
-        "embedsubtitles": True,
-        "subtitleslangs": ["ar", "en"],
-        "concurrent_fragment_downloads": "5",
-        "compat_opts": {"no-keep-subs"},
-    }
-    
-    yt_opts["postprocessors"] = yt_opts.get("postprocessors", []) + [
-        # The order of the postprocessors is important as some of them may affect the output of the previous ones.
-        {
-            "key": "FFmpegMetadata",
-            "add_chapters": True,
-            "add_metadata": True,
-            "add_infojson": "if_exists",
-        },
-        {"key": "FFmpegEmbedSubtitle", "already_have_subtitle": False},
-        {"key": "EmbedThumbnail", "already_have_thumbnail": False},
-    ] # type: ignore
-    
-    
-    with yt_dlp.YoutubeDL(yt_opts) as ydl:
-        if statusCode := ydl.download(meta["webpage_url"]):
-            console.print(f"[warning1]Warning! Download operation exitted with status code {statusCode}.[/]")
-            
-            return statusCode
-        
-        filename = os.path.splitext(ydl.prepare_filename(meta))[0]
-        conn = sqlite3.connect(os.path.join(os.path.dirname(__file__), "download_history.db"))
-        c = conn.cursor()
-        
-        if downloaded_before:
-            query = "UPDATE History SET filename = :filename, location = :location, date = :date WHERE video_id = :video_id"
-        
-        else:
-            query = "INSERT INTO History VALUES (:video_id, :filename, :location, :date)"
-        
-        c.execute(query, {"video_id": meta["id"], "filename": filename, "location": download_location,
-                          "date": datetime.now().strftime("%d/%m/%Y %H:%M:%S")})
-        
-        conn.commit()
-        conn.close()
-        
-        if not os.path.exists(f"{filename}.txt"):
-            with open(f"{filename}.txt", "w") as f:
-                f.write(f"Title: {str(meta['title'].encode('utf-8'))}\nLink: {str(meta['webpage_url'].encode('utf-8'))}\nDescription:\n{str(meta['description'].encode('utf-8'))}")
-        
-        return statusCode
-
-
-def downloadSingleYoutubeVideo(vidLink: str, subDir="") -> int:
-    """
-    Description:
-        Downloads a single youtube video.
+        Downloads a single youtube video or audio file.
     ---
     Parameters:
         `vidLink -> str`: The link of the youtube video to download.
         
         `subDir -> str`: An optional parameter to specify a sub-directory to download the videos to.
+        
+        `write_desc -> bool`: A flag that indicates whether to write the [normal2]video description[/] to a text file or not. Defaults to `False`.
     
     ---
     Returns:
         `int` => The exit code of the download process. One of the following:
+        
         Value | Meaning
         ------|--------
         `-4`  | The video is already downloaded.
@@ -285,101 +50,75 @@ def downloadSingleYoutubeVideo(vidLink: str, subDir="") -> int:
         with console.status("[normal1]Fetching available streams...[/]"):
             try:
                 meta = ydl.extract_info(vidLink, download=False)
+            
             except yt_dlp.utils.DownloadError:
                 meta = None
         
         if meta is None or "formats" not in meta:
             raise ConnectionAbortedError("No video found at the given link. Please check your internet connection and the video link.")
         
-        conn = sqlite3.connect(os.path.join(os.path.dirname(__file__), "download_history.db"))
+        conn = dh.initDatabase()
         c = conn.cursor()
-        
-        c.execute("""CREATE TABLE IF NOT EXISTS History (
-            video_id TEXT PRIMARY KEY,
-            filename text,
-            location text,
-            date text)""")
         
         c.execute("SELECT * FROM History WHERE video_id = ?", (meta["id"],))
         
         downloadedBefore = False
-        if result := c.fetchone():
-            if os.path.isfile(os.path.join(result[2], result[1]+".mp4")) or os.path.isfile(os.path.join(result[2], result[1]+".m4a")):
+        result = c.fetchone()
+        
+        if result:
+            if glob(f"{os.path.join(result[2], os.path.splitext(result[1])[0])}*"):
                 console.print(f"[normal1]The \"[normal2]{meta['title']}[/]\" video has already been downloaded on [normal2]{result[3]}[/].[/]")
+                console.print(f"[normal1]File location: '[normal2]{os.path.join(result[2], result[1])}[/]'[/]""")
+                
                 conn.close()
+                
                 return -4 # File is already downloaded.
             
-            console.print(f"[normal1]The \"[normal2]{meta['title']}[/]\" video has been downloaded before on [normal2]{result[3]}[/] but the file is missing from '{os.path.join(result[2], result[1])}'.[/]\n")
+            console.print(f"[normal1]The \"[normal2]{result[1]}[/]\" video has been downloaded before on [normal2]{result[3]}[/] but the file is missing.[/]")
+            console.print(f"[normal1]Last known location is: '[normal2]{os.path.join(result[2], result[1])}[/]'[/]\n")
+            
             if not tui.yesNoQuestion("Do you want to download it again?", 0, [1, 0], ["Yes", "No"], [1, 2]):
                 conn.close()
+                
                 return -3 # File is missing and user doesn't want to download it again.
             
             downloadedBefore = True
         
+        conn.close()
+        
         console.print("\n[normal1]Available [normal2]streams[/] are:[/]")
         console.print(f"[normal1]{'='*22}[/]")
-        groupedStreams = groupYoutubeStreams(meta["formats"])
-        categoriesLengths = printStreamsTable(groupedStreams)
+        
+        groupedStreams = sh.groupYoutubeStreams(meta["formats"])
+        categoriesLengths = sh.printStreamsTable(groupedStreams)
         
         console.print(f"[normal1]Video Title : [normal2]{meta['title']}[/][/]")
         console.print(f"[normal1]Duration    : [normal2]{meta['duration_string']}[/] min[/]", end="  |  ")
         console.print(f"[normal1]Release Date: [normal2]{datetime.strptime(meta['upload_date'], '%Y%m%d').strftime('%d/%m/%Y')}[/][/]\n")
         
-        # Ex: [1, 5, 4, 1] => (cat, res, cat, res)
-        selectedStreamsIndexes = dh.selectStreams(categoriesLengths)
-        if not selectedStreamsIndexes:
+        selectedStreams = sh.selectStreams(categoriesLengths, groupedStreams)
+        if not selectedStreams:
             conn.close()
+            
             return -2 # User canceled the download process
         
-        selectedFormats, streamsSize, videoSelected = extractSelectedStreams(groupedStreams, selectedStreamsIndexes)
+        selectedFormats, streamsSize = sh.extractFormatIdsFromSelectedStreams(selectedStreams)
         streamsSize /= (1024 * 1024)
         
-        console.print(f"[normal1]Total file size: [normal2]{format(streamsSize / 1024, '.2f')+'[/] GB' if streamsSize >= 1024 else format(streamsSize, '.2f')+'[/] MB'}[/]")
-        print("")
-
+        console.print(f"[normal1]Total file size: [normal2]{format(streamsSize / 1024, '.2f')+'[/] GB' if streamsSize >= 1024 else format(streamsSize, '.2f')+'[/] MB'}[/]\n")
+        
         # https://github.com/yt-dlp/yt-dlp/issues/630#issuecomment-893659460
         yt_opts |= {
             "format": selectedFormats,
             "outtmpl": os.path.join(downloadLocation, "%(title)s.%(ext)s"),
         }
         
-        return downloadYoutubeVideo(yt_opts, meta, downloadLocation, downloadedBefore) # type: ignore
-
-
-def printPlaylistTable(playlist_entries: list[dict[str, str | int]]) -> None:
-    """
-    Description:
-        Prints the streams of a youtube playlist in a tabular format.
-    ---
-    Parameters:
-        `playlistEntries -> list[dict[str, str|int]]]`: A list of youtube playlist videos.
-    """
-    
-    bgColor = " on #00005f"
-    table = Table(
-        style=f"bold blue1{bgColor}",
-        row_styles=[f"bold medium_purple3{bgColor}", f"bold dark_violet{bgColor}"],
-        header_style=f"bold deep_pink1{bgColor}",
-        show_lines=True,
-        box=box.SQUARE,
-    )
-    
-    table.add_column("Index", justify="center")
-    table.add_column("Duration",  justify='left')
-    table.add_column("Downloaded",  justify='center')
-    table.add_column("Name", justify="left", no_wrap=True)
-    
-    for i, entry in enumerate(playlist_entries, 1):
-        duration = divmod(entry["duration"], 60) # type: ignore
-        durationStr = f"[normal2]{duration[0]:02}[/]:[normal2]{duration[1]:02}[/] min{'s' if duration[0] > 1 else ''}"
+        fileExtension = "mp4" if len(selectedStreams) == 2 else selectedStreams[0]["ext"]
         
-        table.add_row(f"({i})", durationStr, f"{'[exists]Yes' if entry['downloaded'] else '[red]No'}[/]", str(entry["title"]))
-    
-    console.print(table)
-    print("")
+        return dh.downloadFromYoutube(yt_opts, meta, fileExtension, downloadLocation, downloadedBefore, write_desc=write_desc) # type: ignore
 
 
-def downloadYoutubePlaylist(playlist_link: str, start_from=0, end_with=0, subDir="") -> tuple[int, str]:
+def downloadYoutubePlaylist(playlist_link: str, start_from=0, end_with=0, subDir="", write_desc=True) -> tuple[int, str]:
     """
     Description:
         Downloads one or more videos from a youtube playlist.
@@ -392,6 +131,8 @@ def downloadYoutubePlaylist(playlist_link: str, start_from=0, end_with=0, subDir
         `end_with -> int`: The last playlist entry to download.
         
         `subDir -> str`: An optional parameter to specify a sub-directory to download the videos to.
+        
+        `write_desc -> bool`: A flag that indicates whether to write the [normal2]video description[/] to a text file for the selected entries. Defaults to `True`.
     
     ---
     Returns:
@@ -399,7 +140,7 @@ def downloadYoutubePlaylist(playlist_link: str, start_from=0, end_with=0, subDir
     """
     
     yt_opts = {
-        "quiet": True, "progress": True,
+        "quiet": True, 'noprogress': True,
         "consoletitle": True, "extract_flat": True,
     }
     
@@ -420,14 +161,8 @@ def downloadYoutubePlaylist(playlist_link: str, start_from=0, end_with=0, subDir
     
     playlistEntries = [{"id": entry["id"], "title": entry["title"], "duration": entry["duration"], "url": entry["url"]} for entry in playlistMeta["entries"]]
     
-    conn = sqlite3.connect(os.path.join(os.path.dirname(__file__), "download_history.db"))
+    conn = dh.initDatabase()
     c = conn.cursor()
-    
-    c.execute("""CREATE TABLE IF NOT EXISTS History (
-        video_id TEXT PRIMARY KEY,
-        filename text,
-        location text,
-        date text)""")
     
     results = []
     for entry in playlistEntries:
@@ -435,89 +170,131 @@ def downloadYoutubePlaylist(playlist_link: str, start_from=0, end_with=0, subDir
         results.append(c.fetchone())
         entry["downloaded"] = results[-1] is not None
     
-    conn.close()
-    
     console.print("[normal1]Availabe video in the playlist:[/]\n")
-    printPlaylistTable(playlistEntries)
-    console.print(f"[normal1]Playlist: [normal2]{playlistMeta['title']}[/] \[[normal2]{len(playlistMeta['entries'])}[/] Videos][/]")
+    sh.printPlaylistTable(playlistEntries)
+    
+    console.print(fr"[normal1]Playlist: [normal2]{playlistMeta['title']}[/] \[[normal2]{len(playlistMeta['entries'])}[/] Videos][/]")
     console.print(f"[normal1]{'='* (10 + len(playlistMeta['title']))}[/]")
     
-    startEnd = dh.getPlaylistStartAndEnd(len(playlistMeta), start_from, end_with)
+    startEnd = sh.getPlaylistStartAndEnd(len(playlistMeta), start_from, end_with)
     
     downloadThreads = []
     totalSize     = 0.0
     totalDuration = 0.0
-    for i, entry in enumerate(playlistEntries[startEnd[0]-1:startEnd[1]], startEnd[0]):
-        if entry["downloaded"]:
-            if os.path.isfile(os.path.join(results[i-1][2], results[i-1][1])):
-                console.print(f"[normal1]The \"[normal2]{entry['title']}[/]\" video has already been downloaded on [normal2]{results[i-1][3]}[/].[/]")
+    
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+        for i, entry in enumerate(playlistEntries[startEnd[0]-1:startEnd[1]], startEnd[0]):
+            video_link = entry["url"]
+            video_id = entry['id']
+            downloaded_before = entry["downloaded"]
+            
+            if downloaded_before:
+                full_name = results[i-1][1]
+                directory = results[i-1][2]
+                download_date = results[i-1][3]
                 
+                if dh.isFilePresent(directory, full_name, download_date):
+                    continue
+            
+            download_dict = sh.parseAndSelectStreams(i, video_link, video_id)
+            
+            if not download_dict:
                 continue
             
-            console.print(f"[normal1]The \"[normal2]{entry['title']}[/]\" video has been downloaded before on [normal2]{results[i-1][3]}[/] but the file is missing.[/]\n")
-            if not tui.yesNoQuestion("Do you want to download it again?", 0, [1, 0], ["Yes", "No"], [1, 2]):
+            download_dict["yt_opts"] |= {"outtmpl": os.path.join(downloadLocation, f"({i}). %(title)s.%(ext)s")}
+            
+            totalDuration += download_dict["meta"]["duration"]
+            totalSize     += download_dict["size"]
+            
+            thread = executor.submit(dh.downloadFromYoutube, download_dict["yt_opts"], download_dict["meta"], download_dict["fileExtension"], downloadLocation, downloaded_before, write_desc, True)
+            downloadThreads.append(thread)
+        
+        dh.ProgressBar.enable_progress_bar = True
+    
+    for future in downloadThreads:
+        future.result()
+    
+    conn.commit()
+    conn.close()
+    
+    dh.showResults(totalSize, totalDuration)
+    
+    return 0, folderName
+
+def downloadMultipleYoutubeVideos(filename="video-links.txt", write_desc=False) -> tuple[int, str]:
+    """
+    Description:
+        Download youtube videos with the links from the specified file.
+    ---
+    Parameters:
+        `file_name -> str`: The name of the file containing the youtube video links.
+        
+        `write_desc -> bool`: A flag that indicates whether to write the [normal2]video description[/] to a text file for the specified entries. Defaults to `False`.
+    
+    ---
+    Returns:
+        `tuple[bool, str]` => Always returns `False` and the name of the download folder.
+    """
+    
+    if not os.path.exists(filename) and not os.path.getsize(filename):
+        console.print(f"[warning1]The file [warning2]{filename}[/] either [warning2]doesn't exist[/] or is [warning2]empty[/].[/]")
+        
+        return False, ""
+    
+    conn = dh.initDatabase()
+    c = conn.cursor()
+    
+    downloadThreads = []
+    totalSize     = 0.0
+    totalDuration = 0.0
+    
+    folderName = datetime.now().strftime("%d-%m-%Y")
+    downloadLocation = os.path.join(os.path.dirname(__file__), "downloads", folderName)
+    os.makedirs(downloadLocation, exist_ok=True)
+    
+    with open(filename, "r") as file:
+        video_links = [line.strip() for line in file.readlines()]
+    
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+        for i, video_link in enumerate(video_links, 1):
+            video_id = dh.idExtractor(video_link)
+            result = c.execute("SELECT * FROM History WHERE video_id=?", (video_id,)).fetchone()
+            
+            if result:
+                downloaded_file_name = result[1]
+                downloaded_file_directory = result[2]
+                download_date = result[3]
+                
+                if dh.isFilePresent(downloaded_file_directory, downloaded_file_name, download_date):
+                    continue
+            
+            download_dict = sh.parseAndSelectStreams(i, video_link, video_id)
+            
+            if not download_dict:
                 continue
+            
+            download_dict["yt_opts"] |= {"outtmpl": os.path.join(downloadLocation, "%(title)s.%(ext)s")}
+            
+            totalDuration += download_dict["meta"]["duration"]
+            totalSize     += download_dict["size"]
+            
+            thread = executor.submit(dh.downloadFromYoutube, download_dict["yt_opts"], download_dict["meta"], download_dict["fileExtension"], downloadLocation, result is not None, write_desc, True)
+            downloadThreads.append(thread)
         
-        yt_opts = {
-            "quiet": True, "progress": True, "consoletitle": True, "noplaylist": True,
-            "outtmpl": os.path.join(downloadLocation, "%(title)s.%(ext)s"),
-        }
-        
-        with yt_dlp.YoutubeDL(yt_opts) as ydl:
-            with console.status("[normal1]Fetching available streams...[/]"):
-                try:
-                    meta = ydl.extract_info(entry["url"], download=False)
-                except yt_dlp.utils.DownloadError:
-                    meta = None
-        
-        if meta is None or "formats" not in meta:
-            console.print(f"[warning1]ConnectionAbortedError: Could not [warning2]extract[/] the youtube video info with id=[waring2]{entry['id']}[/].[/]")
-            continue
-        
-        console.print("\n[normal1]Available [normal2]streams[/] are:[/]")
-        console.print(f"[normal1]{'='*22}[/]")
-        groupedStreams = groupYoutubeStreams(meta["formats"])
-        categoriesLengths = printStreamsTable(groupedStreams)
-        
-        console.print(f"[normal1]Video #{i} : [normal2]{meta['title']}[/][/]")
-        console.print(f"[normal1]Duration    : [normal2]{meta['duration_string']}[/] min[/]", end="  |  ")
-        console.print(f"[normal1]Release Date: [normal2]{datetime.strptime(meta['upload_date'], '%Y%m%d').strftime('%d/%m/%Y')}[/][/]\n")
-        
-        selectedStreamsIndexes = dh.selectStreams(categoriesLengths)
-        if not selectedStreamsIndexes:
-            continue # User skipped the video.
-        
-        selectedFormats, streamsSize, videoSelected = extractSelectedStreams(groupedStreams, selectedStreamsIndexes)
-        totalDuration += meta["duration"]
-        totalSize     += streamsSize
-        
-        yt_opts |= {
-            "format": selectedFormats,
-            "outtmpl": os.path.join(downloadLocation, f"({i}). %(title)s.%(ext)s"),
-        }
-        
-        thread = threading.Thread(target=downloadYoutubeVideo, args=(yt_opts, meta, downloadLocation, entry["downloaded"]))
-        thread.start()
-        downloadThreads.append(thread)
+        dh.ProgressBar.enable_progress_bar = True
     
-    for thread in downloadThreads:
-        thread.join()
+    for future in downloadThreads:
+        future.result()
     
-    playsound.playsound(SFX_LOC)
+    conn.commit()
+    conn.close()
     
-    mins, secs = divmod(totalDuration, 60)
-    hours = 0
-    if mins > 59:
-        hours, mins = divmod(mins, 60)
-    hours, mins, secs = int(hours), int(mins), int(secs)
+    dh.showResults(totalSize, totalDuration)
     
-    totalSize /= (1024 * 1024)
-    
-    console.print(f"[normal1]Total content size:     [normal2]{format(totalSize / 1024, '.2f')+'[/] GB' if totalSize >= 1024 else format(totalSize, '.2f')+'[/] MB'}[/]")
-    console.print(f"[normal1]Total content duration: {'[normal2]'+format(hours, '02')+'[/]:' if hours else ''}[normal2]{mins:02}[/]:[normal2]{secs:02}[/][/]mins")
-    print("")
+    # Clearing the file's content.
+    with open(filename, 'w') as file:
+        pass
     
     return 0, folderName
 
 
-# TODO: Download part of a video -> Videos can be downloaded partially based on either timestamps or chapters using --download-sections
