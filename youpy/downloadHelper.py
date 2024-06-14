@@ -51,7 +51,7 @@ class ProgressBar:
             `progress` -> dict: A dictionary containing the progress information.
         """
         
-        id = progress.get("info_dict", {}).get("id", "-1")
+        id = progress.get("info_dict", dict()).get("id", "-1")
         
         if progress['status'] == 'finished':
             if id in cls.downloads_dict:
@@ -71,7 +71,7 @@ class ProgressBar:
             eta_seconds = progress.get('eta', -1) or -1
             
             if id not in cls.downloads_dict:
-                cls.downloads_dict[id] = {}
+                cls.downloads_dict[id] = dict()
             
             cls.downloads_dict[id].update({
                 "status": "downloading",
@@ -188,7 +188,7 @@ class ProgressBar:
     def displayProgressBars(cls) -> None:
         """Executes the progress bar printing and cursor moving functions."""
         
-        downloads_dict = {}
+        downloads_dict = dict()
         
         # Because cls.dowloads_dict is not guranteed to be constant during the execution of this function, we need to make a copy.
         downloads_dict = cls.downloads_dict.copy()
@@ -199,34 +199,30 @@ class ProgressBar:
 
 
 def downloadFromYoutube(yt_opts: dict[str, object], meta: dict[str, object], file_extension: str, download_location: str,
-                         downloaded_before=False, write_desc=False, commitChanges=True) -> int:
+                         downloaded_before=False, write_desc=False) -> tuple[str, dict[str, str]]:
     """
     Description:
         Downloads a YouTube video using the provided options, updates download history database, stores the video description into a text file.
     ---
     Parameters:
         `yt_opts -> dict[str, object]`: A dict containing options for configuring the behavior of the `yt-dlp` downloader.
-
+        
         `meta -> dict[str, object]`: A dict containing YouTube video metadata.
-
+        
         `file_extension -> str`: The expected extension of the file being downloaded.
-
+        
         `download_location -> str`: Specifies where the downloaded video will be saved
-
+        
         `downloaded_before -> bool`: A flag that indicates whether the video has been downloaded before.
             If `True`, the function will update the download history instead of adding a new record.
-
+        
         `write_desc -> bool`: A flag that indicates whether to write the video description to a text file or not.
-
-        `commitChanges: bool`: A flag that indicates whether to commit the changes to the database or not.
-        An optional parameter to specify a connection to a sqlite3 database.
-            If `False`, it is the responsibility of the caller to commit the changes to the database.
-
+    
     ---
     Returns:
-        `int` => The status code of the download operation.
+        `tuple[str, dict[str, str]]` => A tuple containing the query and the parameters to be used for updating the database.
     """
-
+    
     yt_opts |= {
         "checkformats": "selected",
         "addmetadata": True,
@@ -239,8 +235,14 @@ def downloadFromYoutube(yt_opts: dict[str, object], meta: dict[str, object], fil
         "concurrent_fragment_downloads": "5",
         "compat_opts": {"no-keep-subs"},
     }
-
-    yt_opts["postprocessors"] = yt_opts.get("postprocessors", []) + [
+    
+    if not "postprocessors" in yt_opts:
+        yt_opts["postprocessors"] = list()
+    
+    if yt_opts["format"] == "bestaudio":
+        yt_opts["postprocessors"].append({"key": "FFmpegExtractAudio", "preferredcodec": "m4a"}) # type: ignore
+    
+    yt_opts["postprocessors"].extend([ # type: ignore
         # The order of the postprocessors is important as some of them may affect the output of the previous ones.
         {
             "key": "FFmpegMetadata",
@@ -250,39 +252,41 @@ def downloadFromYoutube(yt_opts: dict[str, object], meta: dict[str, object], fil
         },
         {"key": "FFmpegEmbedSubtitle", "already_have_subtitle": False},
         {"key": "EmbedThumbnail", "already_have_thumbnail": False},
-    ] # type: ignore
-
-
+    ])
+    
+    
     with yt_dlp.YoutubeDL(yt_opts) as ydl:
         if statusCode := ydl.download(meta["webpage_url"]):
             console.print(f"[warning1]Warning! Download operation exitted with status code {statusCode}.[/]")
-
-            return statusCode
-
+            
+            return tuple() # type: ignore
+    
     filename = os.path.splitext(os.path.basename(ydl.prepare_filename(meta)))[0]
-
-    conn = sqlite3.connect(os.path.join(os.path.dirname(__file__), "download_history.db"))
-    c = conn.cursor()
-
+    
     if downloaded_before:
         query = "UPDATE History SET filename = :filename, location = :location, date = :date WHERE video_id = :video_id"
-
+    
     else:
         query = "INSERT INTO History VALUES (:video_id, :filename, :location, :date)"
-
-    c.execute(query, {"video_id": meta["id"], "filename": f"{filename}.{file_extension}", "location": download_location,
-                        "date": datetime.now().strftime("%d/%m/%Y %H:%M:%S")})
-
-    if commitChanges:
-        conn.commit()
-
-    conn.close()
-
+    
+    params = {
+        "video_id": meta["id"],
+        "filename": f"{filename}.{file_extension}",
+        "location": download_location,
+        "date": datetime.now().strftime("%Y/%m/%d %H:%M:%S")
+    }
+    
     if write_desc and (not os.path.exists(f"{filename}.txt") or os.path.getsize(f"{filename}.txt") == 0):
         with open(f"{filename}.txt", "w") as f:
             f.write(f"Title: {meta['title'].encode('utf-8')}\n\nLink: {meta['webpage_url'].encode('utf-8')}\n\nDescription:\n\n{meta['description'].encode('utf-8')}") # type: ignore
+    
+    return (query, params)
 
-    return statusCode
+
+def removeDuplicateLinks(lst: list[str]) -> OrderedDict[str, None]:
+    """Removes duplicates from a list while preserving its order."""
+    
+    return OrderedDict.fromkeys(lst)
 
 
 def idExtractor(url):

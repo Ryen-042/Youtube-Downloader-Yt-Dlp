@@ -2,123 +2,91 @@
 
 import os, yt_dlp, concurrent.futures
 from datetime import datetime
-from glob import glob
 
 from common import console
 import downloadHelper as dh
 import streamsHelper as sh
-import tui
 
 
-def downloadSingleVideo(vidLink: str, subDir="", write_desc=False) -> int:
+def downloadSingleVideo(video_link: str, write_desc=False, best_audio=False) -> str:
     """
     Description:
         Downloads a single youtube video or audio file.
     ---
     Parameters:
-        `vidLink -> str`: The link of the youtube video to download.
+        `video_link -> str`: The link of the youtube video to download.
         
-        `subDir -> str`: An optional parameter to specify a sub-directory to download the videos to.
+        `write_desc -> bool`: A flag that indicates whether to write the video description to a text file or not. Defaults to `False`.
         
-        `write_desc -> bool`: A flag that indicates whether to write the [normal2]video description[/] to a text file or not. Defaults to `False`.
+        `best_audio -> bool`: A flag that indicates whether to download only the audio stream with the highest quality without prompting the user for selection. Defaults to `False`.
     
     ---
     Returns:
-        `int` => The exit code of the download process. One of the following:
-        
-        Value | Meaning
-        ------|--------
-        `-4`  | The video is already downloaded.
-        `-3`  | The video has been downloaded before but the file is missing and the user refused to download the video again when prompted.
-        `-2`  | User canceled the download process by not selecting any stream formats.
-        `-1`  | Something went wrong while downloading.
-        `0`   | The download process completed successfully.
+        `str` => The name of the download folder.
     """
     
-    if subDir:
-        downloadLocation = os.path.join(os.path.dirname(__file__), "downloads", subDir)
-    else:
-        downloadLocation = os.path.join(os.path.dirname(__file__), "downloads")
-    
+    folderName = datetime.now().strftime("%Y-%m-%d")
+    downloadLocation = os.path.join(os.path.dirname(__file__), "downloads", folderName)
     os.makedirs(downloadLocation, exist_ok=True)
     
-    yt_opts = {
-        "quiet": True, "progress": True, "consoletitle": True, "noplaylist": True,
-    }
+    conn = dh.initDatabase()
+    c = conn.cursor()
     
-    with yt_dlp.YoutubeDL(yt_opts) as ydl:
-        with console.status("[normal1]Fetching available streams...[/]"):
-            try:
-                meta = ydl.extract_info(vidLink, download=False)
-            
-            except yt_dlp.utils.DownloadError:
-                meta = None
+    video_id = dh.idExtractor(video_link)
+    if not video_id:
+        return folderName # Invalid video link
+    
+    result = c.execute("SELECT * FROM History WHERE video_id=?", (video_id,)).fetchone()
+    
+    if result:
+        downloaded_file_name = result[1]
+        downloaded_file_directory = result[2]
+        download_date = result[3]
         
-        if meta is None or "formats" not in meta:
-            raise ConnectionAbortedError("No video found at the given link. Please check your internet connection and the video link.")
-        
-        conn = dh.initDatabase()
-        c = conn.cursor()
-        
-        c.execute("SELECT * FROM History WHERE video_id = ?", (meta["id"],))
-        
-        downloadedBefore = False
-        result = c.fetchone()
-        
-        if result:
-            if glob(f"{os.path.join(result[2], os.path.splitext(result[1])[0])}*"):
-                console.print(f"[normal1]The \"[normal2]{meta['title']}[/]\" video has already been downloaded on [normal2]{result[3]}[/].[/]")
-                console.print(f"[normal1]File location: '[normal2]{os.path.join(result[2], result[1])}[/]'[/]""")
-                
-                conn.close()
-                
-                return -4 # File is already downloaded.
-            
-            console.print(f"[normal1]The \"[normal2]{result[1]}[/]\" video has been downloaded before on [normal2]{result[3]}[/] but the file is missing.[/]")
-            console.print(f"[normal1]Last known location is: '[normal2]{os.path.join(result[2], result[1])}[/]'[/]\n")
-            
-            if not tui.yesNoQuestion("Do you want to download it again?", 0, [1, 0], ["Yes", "No"], [1, 2]):
-                conn.close()
-                
-                return -3 # File is missing and user doesn't want to download it again.
-            
-            downloadedBefore = True
-        
-        conn.close()
-        
-        console.print("\n[normal1]Available [normal2]streams[/] are:[/]")
-        console.print(f"[normal1]{'='*22}[/]")
-        
-        groupedStreams = sh.groupYoutubeStreams(meta["formats"])
-        categoriesLengths = sh.printStreamsTable(groupedStreams)
-        
-        console.print(f"[normal1]Video Title : [normal2]{meta['title']}[/][/]")
-        console.print(f"[normal1]Duration    : [normal2]{meta['duration_string']}[/] min[/]", end="  |  ")
-        console.print(f"[normal1]Release Date: [normal2]{datetime.strptime(meta['upload_date'], '%Y%m%d').strftime('%d/%m/%Y')}[/][/]\n")
-        
-        selectedStreams = sh.selectStreams(categoriesLengths, groupedStreams)
-        if not selectedStreams:
+        if dh.isFilePresent(downloaded_file_directory, downloaded_file_name, download_date):
             conn.close()
-            
-            return -2 # User canceled the download process
-        
-        selectedFormats, streamsSize = sh.extractFormatIdsFromSelectedStreams(selectedStreams)
-        streamsSize /= (1024 * 1024)
-        
-        console.print(f"[normal1]Total file size: [normal2]{format(streamsSize / 1024, '.2f')+'[/] GB' if streamsSize >= 1024 else format(streamsSize, '.2f')+'[/] MB'}[/]\n")
-        
-        # https://github.com/yt-dlp/yt-dlp/issues/630#issuecomment-893659460
-        yt_opts |= {
-            "format": selectedFormats,
-            "outtmpl": os.path.join(downloadLocation, "%(title)s.%(ext)s"),
+            return folderName # File already downloaded
+    
+    yt_extra_opts = {
+        "noprogress": True,
+        "progress_hooks": [dh.ProgressBar.progressBarHook]
+    }
+    dh.ProgressBar.enable_progress_bar = True
+    
+    if best_audio:
+        yt_extra_opts |= {
+            "format": "bestaudio",
+            "quiet": True,
+            "consoletitle": True,
+            "noplaylist": True
         }
         
-        fileExtension = "mp4" if len(selectedStreams) == 2 else selectedStreams[0]["ext"]
-        
-        return dh.downloadFromYoutube(yt_opts, meta, fileExtension, downloadLocation, downloadedBefore, write_desc=write_desc) # type: ignore
+        with yt_dlp.YoutubeDL(yt_extra_opts) as ydl:
+            # Extract information before downloading
+            meta = ydl.extract_info(video_link, download=False)
+            download_dict = {"yt_opts": yt_extra_opts, "meta": meta, "fileExtension": "m4a", "size": meta.get('filesize', None) or meta.get("filesize_approx")}  # type:ignore
+    
+    else:
+        download_dict = sh.parseAndSelectStreams(0, video_link, video_id, yt_extra_opts)
+    
+    if not download_dict:
+        conn.close()
+        return folderName # User canceled the download process
+    
+    # https://github.com/yt-dlp/yt-dlp/issues/630#issuecomment-893659460
+    download_dict["yt_opts"] |= {"outtmpl": os.path.join(downloadLocation, "%(title)s.%(ext)s")} # type: ignore
+    
+    query = dh.downloadFromYoutube(download_dict["yt_opts"], download_dict["meta"], download_dict["fileExtension"], downloadLocation, result is not None, write_desc) # type: ignore
+    c.execute(*query)
+    conn.commit()
+    conn.close()
+    
+    dh.showResults(download_dict["size"], download_dict["meta"]["duration"]) # type: ignore
+    
+    return folderName
 
 
-def downloadYoutubePlaylist(playlist_link: str, start_from=0, end_with=0, subDir="", write_desc=True) -> tuple[int, str]:
+def downloadYoutubePlaylist(playlist_link: str, start_from=0, end_with=0, write_desc=True, best_audio=False) -> str:
     """
     Description:
         Downloads one or more videos from a youtube playlist.
@@ -130,13 +98,13 @@ def downloadYoutubePlaylist(playlist_link: str, start_from=0, end_with=0, subDir
         
         `end_with -> int`: The last playlist entry to download.
         
-        `subDir -> str`: An optional parameter to specify a sub-directory to download the videos to.
+        `write_desc -> bool`: A flag that indicates whether to write the video description to a text file for the selected entries. Defaults to `True`.
         
-        `write_desc -> bool`: A flag that indicates whether to write the [normal2]video description[/] to a text file for the selected entries. Defaults to `True`.
+        `best_audio -> bool`: A flag that indicates whether to download only the audio stream with the highest quality without prompting the user for selection. Defaults to `False`.
     
     ---
     Returns:
-        `tuple[int, str]` => Always returns the status code `0` (success) and the name of the download folder.
+        `str` => The name of the download folder.
     """
     
     yt_opts = {
@@ -154,8 +122,7 @@ def downloadYoutubePlaylist(playlist_link: str, start_from=0, end_with=0, subDir
     if playlistMeta is None:
         raise ConnectionAbortedError("No playlist found at the given link. Please check your internet connection and the playlist link.")
     
-    folderName = subDir or playlistMeta["title"]
-    
+    folderName = yt_dlp.utils.sanitize_filename(playlistMeta["title"])
     downloadLocation = os.path.join(os.path.dirname(__file__), "downloads", folderName)
     os.makedirs(downloadLocation, exist_ok=True)
     
@@ -182,6 +149,10 @@ def downloadYoutubePlaylist(playlist_link: str, start_from=0, end_with=0, subDir
     totalSize     = 0.0
     totalDuration = 0.0
     
+    
+    if best_audio:
+        dh.ProgressBar.enable_progress_bar = True
+    
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
         for i, entry in enumerate(playlistEntries[startEnd[0]-1:startEnd[1]], startEnd[0]):
             video_link = entry["url"]
@@ -196,32 +167,52 @@ def downloadYoutubePlaylist(playlist_link: str, start_from=0, end_with=0, subDir
                 if dh.isFilePresent(directory, full_name, download_date):
                     continue
             
-            download_dict = sh.parseAndSelectStreams(i, video_link, video_id)
+            yt_extra_opts = {
+                "noprogress": True,
+                "progress_hooks": [dh.ProgressBar.progressBarHook]
+            }
+            
+            if best_audio:
+                yt_extra_opts |= {
+                    "format": "bestaudio",
+                    "quiet": True,
+                    "consoletitle": True,
+                    "noplaylist": True
+                }
+                
+                with yt_dlp.YoutubeDL(yt_extra_opts) as ydl:
+                    # Extract information before downloading
+                    meta = ydl.extract_info(video_link, download=False)
+                    download_dict = {"yt_opts": yt_extra_opts, "meta": meta, "fileExtension": "m4a", "size": meta.get('filesize', None) or meta.get("filesize_approx")}  # type:ignore
+            else:
+                download_dict = sh.parseAndSelectStreams(i, video_link, video_id, yt_extra_opts)
             
             if not download_dict:
                 continue
             
-            download_dict["yt_opts"] |= {"outtmpl": os.path.join(downloadLocation, f"({i}). %(title)s.%(ext)s")}
+            download_dict["yt_opts"] |= {"outtmpl": os.path.join(downloadLocation, f"({i}). %(title)s.%(ext)s")} # type: ignore
             
-            totalDuration += download_dict["meta"]["duration"]
-            totalSize     += download_dict["size"]
+            totalDuration += download_dict["meta"]["duration"] # type: ignore
+            totalSize     += download_dict["size"] # type: ignore
             
-            thread = executor.submit(dh.downloadFromYoutube, download_dict["yt_opts"], download_dict["meta"], download_dict["fileExtension"], downloadLocation, downloaded_before, write_desc, True)
+            thread = executor.submit(dh.downloadFromYoutube, download_dict["yt_opts"], download_dict["meta"], download_dict["fileExtension"], downloadLocation, downloaded_before, write_desc) # type: ignore
             downloadThreads.append(thread)
         
         dh.ProgressBar.enable_progress_bar = True
     
     for future in downloadThreads:
-        future.result()
+        query = future.result()
+        c.execute(*query)
     
     conn.commit()
     conn.close()
     
     dh.showResults(totalSize, totalDuration)
     
-    return 0, folderName
+    return folderName
 
-def downloadMultipleYoutubeVideos(filename="video-links.txt", write_desc=False) -> tuple[int, str]:
+
+def downloadMultipleYoutubeVideos(filename="video-links.txt", write_desc=False, best_audio=False) -> str:
     """
     Description:
         Download youtube videos with the links from the specified file.
@@ -229,31 +220,36 @@ def downloadMultipleYoutubeVideos(filename="video-links.txt", write_desc=False) 
     Parameters:
         `file_name -> str`: The name of the file containing the youtube video links.
         
-        `write_desc -> bool`: A flag that indicates whether to write the [normal2]video description[/] to a text file for the specified entries. Defaults to `False`.
+        `write_desc -> bool`: A flag that indicates whether to write the video description to a text file for the specified entries. Defaults to `False`.
+        
+        `best_audio -> bool`: A flag that indicates whether to download only the audio stream with the highest quality without prompting the user for selection. Defaults to `False`.
     
     ---
     Returns:
-        `tuple[bool, str]` => Always returns `False` and the name of the download folder.
+        `str` => The name of the download folder.
     """
     
-    if not os.path.exists(filename) and not os.path.getsize(filename):
+    if not os.path.exists(filename) or not os.path.getsize(filename):
         console.print(f"[warning1]The file [warning2]{filename}[/] either [warning2]doesn't exist[/] or is [warning2]empty[/].[/]")
         
-        return False, ""
-    
-    conn = dh.initDatabase()
-    c = conn.cursor()
+        return ""
     
     downloadThreads = []
     totalSize     = 0.0
     totalDuration = 0.0
     
-    folderName = datetime.now().strftime("%d-%m-%Y")
+    folderName = datetime.now().strftime("%Y-%m-%d")
     downloadLocation = os.path.join(os.path.dirname(__file__), "downloads", folderName)
     os.makedirs(downloadLocation, exist_ok=True)
     
     with open(filename, "r") as file:
         video_links = [line.strip() for line in file.readlines()]
+    
+    conn = dh.initDatabase()
+    c = conn.cursor()
+    
+    if best_audio:
+        dh.ProgressBar.enable_progress_bar = True
     
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
         for i, video_link in enumerate(video_links, 1):
@@ -268,23 +264,42 @@ def downloadMultipleYoutubeVideos(filename="video-links.txt", write_desc=False) 
                 if dh.isFilePresent(downloaded_file_directory, downloaded_file_name, download_date):
                     continue
             
-            download_dict = sh.parseAndSelectStreams(i, video_link, video_id)
+            yt_extra_opts = {
+                "noprogress": True,
+                "progress_hooks": [dh.ProgressBar.progressBarHook]
+            }
+            
+            if best_audio:
+                yt_extra_opts |= {
+                    "format": "bestaudio",
+                    "quiet": True,
+                    "consoletitle": True,
+                    "noplaylist": True
+                }
+                
+                with yt_dlp.YoutubeDL(yt_extra_opts) as ydl:
+                    # Extract information before downloading
+                    meta = ydl.extract_info(video_link, download=False)
+                    download_dict = {"yt_opts": yt_extra_opts, "meta": meta, "fileExtension": "m4a", "size": meta.get('filesize', None) or meta.get("filesize_approx")}  # type:ignore
+            else:
+                download_dict = sh.parseAndSelectStreams(i, video_link, video_id, yt_extra_opts)
             
             if not download_dict:
                 continue
             
-            download_dict["yt_opts"] |= {"outtmpl": os.path.join(downloadLocation, "%(title)s.%(ext)s")}
+            download_dict["yt_opts"] |= {"outtmpl": os.path.join(downloadLocation, "%(title)s.%(ext)s")} # type: ignore
             
-            totalDuration += download_dict["meta"]["duration"]
-            totalSize     += download_dict["size"]
+            totalDuration += download_dict["meta"]["duration"] # type: ignore
+            totalSize     += download_dict["size"] # type: ignore
             
-            thread = executor.submit(dh.downloadFromYoutube, download_dict["yt_opts"], download_dict["meta"], download_dict["fileExtension"], downloadLocation, result is not None, write_desc, True)
+            thread = executor.submit(dh.downloadFromYoutube, download_dict["yt_opts"], download_dict["meta"], download_dict["fileExtension"], downloadLocation, result is not None, write_desc) # type: ignore
             downloadThreads.append(thread)
         
         dh.ProgressBar.enable_progress_bar = True
     
     for future in downloadThreads:
-        future.result()
+        query = future.result()
+        c.execute(*query)
     
     conn.commit()
     conn.close()
@@ -295,6 +310,4 @@ def downloadMultipleYoutubeVideos(filename="video-links.txt", write_desc=False) 
     with open(filename, 'w') as file:
         pass
     
-    return 0, folderName
-
-
+    return folderName

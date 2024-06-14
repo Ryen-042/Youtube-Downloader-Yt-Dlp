@@ -3,9 +3,10 @@
 import sys
 from common import console
 
+
 if any([arg in sys.argv for arg in ["-h", "--help"]]):
     console.print(r"""
-[normal1]python "[normal1]main.py" \[[normal2]script_mode[/]] \[[normal2]target_link[/]] \[[normal2]from_video[/]] \[[normal2]to_video[/]] \[[normal2]write_desc[/]]
+[normal1]python "[normal1]main.py" \[[normal2]script_mode[/]] \[[normal2]target_link[/]] \[[normal2]from_video[/]] \[[normal2]to_video[/]] \[[normal2]flags[/]]
 
 [normal2]script_mode[/] : [normal2]1[/] -> download one video
             : [normal2]2[/] -> download videos with links from a file
@@ -20,18 +21,24 @@ if any([arg in sys.argv for arg in ["-h", "--help"]]):
 
 [normal2]to_video[/]    : The [normal2]video number[/] of the last video you want when downloading a [normal2]playlist[/].
 
-[normal2]write_desc[/]  : '[normal2]-d[/]' or '[normal2]--description[/]' -> A flag that indicates whether to write the [normal2]video description[/] to a text file or not. By default, playlist mode writes description, pass '[normal2]--no-desc[/]' to stop this behavior.
+Flags:
+=====
+'[normal2]-ao[/]' or '[normal2]--audio-only[/]' -> Download only the audio stream with the highest quality without prompting the user for selection.
+
+'[normal2]-d[/]' or '[normal2]--description[/]' -> Determines whether to write the [normal2]video description[/] to a text file or not. By default, playlist mode writes description, pass '[normal2]--no-desc[/]' to disable it.
+
+'[normal2]-h[/]' or '[normal2]--help[/]' -> Shows this help message and exit.
+
+'[normal2]-st[/]' or '[normal2]--show-thumbnails[/]' -> Prints [normal2]video thumbnail[/] to the console.
 [/]""")
     
     sys.exit(0)
 
-import os, playsound
-from datetime import datetime
+import os
 from glob import glob
 
 sys.path.append(os.path.dirname(__file__))
 
-from common import SFX_LOC
 import downloadHelper as dh
 import youtubeCore as ytc
 import tui
@@ -40,7 +47,7 @@ os.chdir(os.path.join(os.path.dirname(os.path.abspath(__file__))))
 os.makedirs(os.path.join(os.path.dirname(os.path.abspath(__file__)), "downloads"), exist_ok=True)
 
 
-def downloadSingleFile(video_link: str, write_desc=False) -> tuple[bool, str]:
+def downloadSingleFile(video_link: str, write_desc=False, best_audio=False) -> tuple[bool, str]:
     """
     Description:
         Download one youtube video.
@@ -48,7 +55,10 @@ def downloadSingleFile(video_link: str, write_desc=False) -> tuple[bool, str]:
     Parameters:
         `video_link -> str`: A link to a youtube video.
         
-        `write_desc -> bool`: A flag that indicates whether to write the [normal2]video description[/] to a text file or not. Defaults to `False`.
+        `write_desc -> bool`: A flag that indicates whether to write the video description to a text file or not. Defaults to `False`.
+        
+        `best_audio -> bool`: A flag that indicates whether to download the best audio stream only. Defaults to `False`.
+    
     ---
     Returns:
         `tuple[bool, str]` => Whether to continue the script with the same mode or end it and the name of the download folder.
@@ -59,14 +69,7 @@ def downloadSingleFile(video_link: str, write_desc=False) -> tuple[bool, str]:
         video_link = input().strip()
         print("")
     
-    folderName = datetime.now().strftime("%d-%m-%Y")
-    downloadLocation = os.path.join(os.path.dirname(__file__), "downloads", folderName)
-    os.makedirs(downloadLocation, exist_ok=True)
-    
-    statusCode = ytc.downloadSingleVideo(vidLink=video_link, subDir=folderName, write_desc=write_desc)
-    
-    if statusCode == 0:
-        playsound.playsound(SFX_LOC)
+    folderName = ytc.downloadSingleVideo(video_link=video_link, write_desc=write_desc, best_audio=best_audio)
     
     continueChoice = tui.yesNoQuestion("Download another video?")
     print("")
@@ -74,7 +77,7 @@ def downloadSingleFile(video_link: str, write_desc=False) -> tuple[bool, str]:
     return continueChoice != 0, folderName
 
 
-def downloadPlaylist(playlist_link: str, from_video=0, to_video=0, sub_dir="", write_desc=True) -> tuple[bool, str]:
+def downloadPlaylist(playlist_link: str, from_video=0, to_video=0, write_desc=True, best_audio=False) -> tuple[bool, str]:
     """
     Description:
         Downloads one or more videos from a youtube playlist.
@@ -86,9 +89,9 @@ def downloadPlaylist(playlist_link: str, from_video=0, to_video=0, sub_dir="", w
         
         `end_with -> int`: The last playlist entry to download.
         
-        `subDir -> str`: An optional parameter to specify a sub-directory to download the videos to.
+        `write_desc -> bool`: A flag that indicates whether to write the video description to a text file for the selected entries. Defaults to `True`.
         
-        `write_desc -> bool`: A flag that indicates whether to write the [normal2]video description[/] to a text file for the selected entries. Defaults to `True`.
+        `best_audio -> bool`: A flag that indicates whether to download the best audio stream only. Defaults to `False`.
     
     ---
     Returns:
@@ -100,7 +103,7 @@ def downloadPlaylist(playlist_link: str, from_video=0, to_video=0, sub_dir="", w
         playlist_link = input().strip()
         print("")
     
-    _, folderName = ytc.downloadYoutubePlaylist(playlist_link, from_video, to_video, sub_dir, write_desc=write_desc)
+    folderName = ytc.downloadYoutubePlaylist(playlist_link, from_video, to_video, write_desc=write_desc, best_audio=best_audio)
     
     continueChoice = tui.yesNoQuestion("Download another playlist?")
     print("")
@@ -136,10 +139,23 @@ def run():
     
     if any(arg in ("-d", "--description") for arg in sys.argv):
         write_desc = True
+        sys.argv.remove("-d") if "-d" in sys.argv else sys.argv.remove("--description")
     else:
-        write_desc = True if choice == 3 and not "--no-desc" in sys.argv else False
+        if choice == 3:
+            if "--no-desc" in sys.argv:
+                write_desc = False
+                sys.argv.remove("--no-desc")
+            else:
+                write_desc = True
+        else:
+            write_desc = False
     
     if choice != -999:
+        downloadBestAudio = False
+        if any(arg in ("-ao", "--audio-only") for arg in sys.argv):
+            downloadBestAudio = True
+            sys.argv.remove("-ao") if "-ao" in sys.argv else sys.argv.remove("--audio-only")
+        
         if choice == 4:
             videoLinks = []
             if len(sys.argv) > 2:
@@ -152,22 +168,27 @@ def run():
                         break
                     videoLinks.extend(link.split(" "))
             
-            dh.writeLinksToFile(videoLinks)
+            videoLinks = dh.removeDuplicateLinks(videoLinks)
+            dh.writeLinksToFile(videoLinks) # type: ignore
+            
             print("")
             
             choice = 2
-
+        
         while True:
             if choice == 1:
-                continueOption, folderName = downloadSingleFile(linkFromTerminalArgument, write_desc=write_desc)
+                continueOption, folderName = downloadSingleFile(linkFromTerminalArgument, write_desc=write_desc, best_audio=downloadBestAudio)
+            
             elif choice == 2:
-                # continueOption, folderName = YoutubeDownloaderFromLinksFile(write_desc=write_desc)
-                continueOption, folderName = ytc.downloadMultipleYoutubeVideos(write_desc=write_desc)
+                folderName = ytc.downloadMultipleYoutubeVideos(write_desc=write_desc, best_audio=downloadBestAudio)
+                continueOption = False
+            
             elif choice == 3:
                 if len(sys.argv) > 4:
-                    continueOption, folderName = downloadPlaylist(playlist_link=linkFromTerminalArgument, from_video=int(sys.argv[3]), to_video=int(sys.argv[4]), write_desc=write_desc)
+                    continueOption, folderName = downloadPlaylist(playlist_link=linkFromTerminalArgument, from_video=int(sys.argv[3]), to_video=int(sys.argv[4]), write_desc=write_desc, best_audio=downloadBestAudio)
                 else:
-                    continueOption, folderName = downloadPlaylist(playlist_link=linkFromTerminalArgument, write_desc=write_desc)
+                    continueOption, folderName = downloadPlaylist(playlist_link=linkFromTerminalArgument, write_desc=write_desc, best_audio=downloadBestAudio)
+            
             else:
                 console.print("[warning1]Invalid choice. Exiting...[/]")
                 continueOption = False
@@ -180,6 +201,7 @@ def run():
                     os.system(f"explorer /select, \"{max(listOfFiles, key=os.path.getctime)}\"")
                 else:
                     os.startfile(os.path.join(os.path.dirname(__file__), "downloads", folderName))
+                
                 break
             
             # Clear the previously entered video link and terminal arguments if another iteration is happening:

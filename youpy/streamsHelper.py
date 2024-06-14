@@ -17,6 +17,7 @@ if any([arg in sys.argv for arg in ["-st", "--show-thumbnails"]]):
     from PIL import Image
     
     SHOW_THUMBNAILS = True
+    sys.argv.remove("-st") if "-st" in sys.argv else sys.argv.remove("--show-thumbnails")
 
 
 def groupYoutubeStreams(streams: list[dict[str, object]]) -> dict[str, list[dict[str, object]]]:
@@ -33,7 +34,7 @@ def groupYoutubeStreams(streams: list[dict[str, object]]) -> dict[str, list[dict
         For example: `{"audio/m4a": [{}], "audio/webm": [{}], "video/mp4": [{}], "audio-video/mp4": [{}]}`
     """
     
-    groupedStreams: dict[str, list[dict[str, object]]] = {}
+    groupedStreams: dict[str, list[dict[str, object]]] = dict()
     
     for stream in streams:
         # Filter out bad and unwanted streams.
@@ -121,7 +122,6 @@ def printStreamsTable(streams: dict[str, list[dict[str, object]]]) -> list[int]:
             streamSize: int = stream["filesize"] or stream["filesize_approx"] # type: ignore
             if streamSize > 1023*1024*1024:
                 sizes.append(f"{round(streamSize/1024/1024/1024, 2):7.2f} GB")
-            
             else:
                 sizes.append(f"{streamSize/1024/1024:7.2f} MB")
             
@@ -166,7 +166,7 @@ def printPlaylistTable(playlist_entries: list[dict[str, str | int]]) -> None:
     table.add_column("Name", justify="left", no_wrap=True)
     
     for i, entry in enumerate(playlist_entries, 1):
-        duration = divmod(entry["duration"], 60) # type: ignore
+        duration = divmod(entry["duration"], 60) if entry["duration"] else [-1, -1] # type: ignore
         durationStr = f"[normal2]{duration[0]:02}[/]:[normal2]{duration[1]:02}[/] min{'s' if duration[0] > 1 else ''}"
         
         table.add_row(f"({i})", durationStr, f"{'[exists]Yes' if entry['downloaded'] else '[red]No'}[/]", str(entry["title"]))
@@ -372,13 +372,15 @@ def extractFormatIdsFromSelectedStreams(selectedStreams: tuple[dict[str, object]
     return (selectedFormats, totalSize) # type: ignore
 
 
-def parseAndSelectStreams(video_number, video_link, video_id):
+def parseAndSelectStreams(video_number, video_link, video_id, yt_extra_opts=None) -> dict[str, object]:
     """Wires up the logic of parsing the video info and selecting the streams to download."""
 
     yt_opts = {
-        "quiet": True, 'noprogress': True, "consoletitle": True, "noplaylist": True,
-        "progress_hooks": [dh.ProgressBar.progressBarHook],
+        "quiet": True, "consoletitle": True, "noplaylist": True,
     }
+    
+    if yt_extra_opts:
+        yt_opts |= yt_extra_opts
 
     with yt_dlp.YoutubeDL(yt_opts) as ydl:
         with console.status("[normal1]Fetching available streams...[/]"):
@@ -389,7 +391,7 @@ def parseAndSelectStreams(video_number, video_link, video_id):
 
     if meta is None or "formats" not in meta:
         console.print(f"[warning1]ConnectionAbortedError: Could not [warning2]extract[/] the youtube video info with id=[waring2]{video_id}[/].[/]")
-        return {}
+        return dict()
 
     console.print("\n[normal1]Available [normal2]streams[/] are:[/]")
     console.print(f"[normal1]{'='*22}[/]")
@@ -412,13 +414,13 @@ def parseAndSelectStreams(video_number, video_link, video_id):
     groupedStreams = groupYoutubeStreams(meta["formats"])
     categoriesLengths = printStreamsTable(groupedStreams)
 
-    console.print(f"[normal1]Video #{video_number:<3}: [normal2]{meta['title']}[/][/]")
+    console.print(f"[normal1]Video #{f'{video_number}:<3' if video_number else 'Title '}: [normal2]{meta['title']}[/][/]")
     console.print(f"[normal1]Duration    : [normal2]{meta['duration_string']}[/] min[/]", end="  |  ")
     console.print(f"[normal1]Release Date: [normal2]{datetime.strptime(meta['upload_date'], '%Y%m%d').strftime('%d/%m/%Y')}[/][/]\n")
 
     selectedStreams = selectStreams(categoriesLengths, groupedStreams)
     if not selectedStreams:
-        return {} # User skipped the video.
+        return dict() # User skipped the video.
 
     selectedFormats, streamsSize = extractFormatIdsFromSelectedStreams(selectedStreams)
     yt_opts |= {"format": selectedFormats}

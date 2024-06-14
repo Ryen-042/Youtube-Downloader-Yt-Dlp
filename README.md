@@ -1,82 +1,77 @@
-# YouTube downloader with `yt-dlp`
+# YouTube Downloader with `yt-dlp`
 
-YouTube downloader utility powered by `yt-dlp`. Unlike `pytube`, `yt-dlp` offers improved stability and reliability in downloading YouTube videos, with a vibrant and active community maintaining its development.
+This is a YouTube downloader utility powered by `yt-dlp`. Unlike `pytube`, `yt-dlp` offers improved stability and reliability in downloading YouTube videos, with an active community maintaining its development.
+
+![Video Download](https://github.com/Ryen-042/Youtube-Downloader-Yt-Dlp/blob/main/images/video-download.gif?raw=true)
 
 ## Why `yt-dlp`?
 
-In the past, `pytube` was the go-to library for me to download YouTube videos. However, one major drawback was the time it took to fix issues caused by changes in the YouTube APIs. This delay often left me waiting for updates to regain functionality or until someone found a solution in the project's github issues.
+When I used to download YouTube videos, my go-to module was `pytube`. One significant downside, though, was the time it took to fix issues caused by changes in the YouTube API. When I really wanted to download videos, this delay frequently left me waiting for module updates, which took a long time. Whenever this occurred, I had to look for fixes or workarounds to get the module back up and running. Fortunately, the helpful folks in the project's issues section helped me most of the time, but it was still a hassle.
 
-`yt-dlp`, on the other hand, benefits from a huge community that actively maintains and updates the library. With this support, any potential issues resulting from YouTube API changes are promptly addressed, ensuring a more reliable downloading experience.
+`yt-dlp`, on the other hand, benefits from a large community that actively maintains and updates the library. With this support, any potential issues resulting from YouTube API changes are promptly addressed, ensuring a more reliable downloading experience.
 
 ## Features
 
-- Downloading YouTube videos with various stream formats and resolution options.
+### Overview
 
-- Downloading from YouTube playlists.
+- Download audio and video streams in various formats and resolution options.
+- Automatically merge selected audio and video streams into a single file when selecting both streams.
+- Automatically include subtitles, video sections, video thumbnails, and other metadata with the downloaded video.
 
-- Embedding subtitles, video sections, video thumbnail, and other metadata.
+### Download Modes
 
-- Selecting two streams for download automatically merges them.
+- **Single Video**: Download a single YouTube video (script mode `1`).
+- **Batch Download**: Download videos from links listed in `video-links.txt` (script mode `2`).
+- **Playlist Download**: Download videos from a YouTube playlist (script mode `3`).
+- **Terminal Input**: Download videos by entering links directly in the terminal (script mode `4`).
+- **Audio Only**: Download the highest quality audio stream available without additional input (use `--audio-only` or `-ao`).
 
-- Download history to prevent downloading duplicate videos.
+### Interface
 
-- Cool progress bar for the multi-files download modes.
-
-- Display video thumbnail in the terminal (pass `--show-thumbnail` or `-st` to enable).
-
-![video-download](https://github.com/Ryen-042/Youtube-Downloader-Yt-Dlp/blob/main/images/video-download.gif?raw=true)
+- Maintain a download history to prevent duplicate downloads.
+- Display a custom-made progress bar for multi-file downloads.
+- Display video thumbnails in the terminal (use `--show-thumbnail` or `-st`).
 
 ## Getting Started
 
-1. Download source files or clone the repository:
+1. Clone the repository:
 
-```bash
-git clone https://github.com/Ryen-042/Youtube-Downloader-Yt-Dlp.git
-```
+    ```bash
+    git clone https://github.com/Ryen-042/Youtube-Downloader-Yt-Dlp.git
+    ```
 
-2. Install the required dependencies. Use the `make install-reqs` command or install the dependencies manually:
+2. Install the required dependencies:
 
-```bash
-pip install -r requirements.txt
-```
-You can also install the package from the source files using the `make install` command or by running `pip install .` in the project directory.
+    ```bash
+    pip install -r requirements.txt
+    ```
+    Or use the `make` command:
+
+    ```bash
+    make install-reqs
+    ```
 
 ## Usage
 
-You can either run this script normally by entering inputs as asked or simply use terminal arguments to skip the input steps. Ex:
+You can run this script either interactively or with command-line arguments to skip input prompts.
 
-- Step by step: `python "main.py"`.
+- **Interactive Mode**: 
 
-- With terminal args: `python "main.py" [script_mode] [youtube_link] [start_video_number] [end_video_number]`.
+    ```bash
+    python main.py
+    ```
 
-There are four script modes available:
+- **Command-Line Mode**:
 
-- `1`: Download a single YouTube video.
-
-- `2`: Download individual YouTube videos from links in a text file.
-
-- `3`: Download videos from a YouTube playlist.
-
-- `4`: Download individual YouTube videos from links entered in the terminal.
-
-Here are some general usage instructions:
-
-- Run python `"main.py" --help` for more information on the available terminal arguments.
-
-- Provide inputs when prompted.
-
-- Select one or two stream formats by entering the category index, followed by the desired format index, separated by spaces. Leave the input empty to skip downloading.
-
-- The selected video format(s) will be downloaded to the `downloads` folder.
+    ```bash
+    python main.py [script_mode] [youtube_link] [start_video_number] [end_video_number]
+    ```
 
 ## Makefile Commands
 
-In the project files, there is a Makefile that contains several useful commands running, installing the project and dependencies, etc... Here are some of the most useful commands:
+The Makefile includes several useful commands for running, installing, and cleaning up the project:
 
 - `make run`: Run the script.
-
 - `make install`: Install the project from the source files.
-
 - `make install-reqs`: Install the required dependencies.
-
 - `make clean`: Remove the `__pycache__` and build folders.
