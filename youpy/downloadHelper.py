@@ -199,7 +199,7 @@ class ProgressBar:
 
 
 def downloadFromYoutube(yt_opts: dict[str, object], meta: dict[str, object], file_extension: str, download_location: str,
-                         downloaded_before=False, write_desc=False) -> tuple[str, dict[str, str]]:
+                         downloaded_before=False, write_desc=False) -> tuple[str, dict[str, str]] | tuple[str, str, str]:
     """
     Description:
         Downloads a YouTube video using the provided options, updates download history database, stores the video description into a text file.
@@ -216,11 +216,12 @@ def downloadFromYoutube(yt_opts: dict[str, object], meta: dict[str, object], fil
         `downloaded_before -> bool`: A flag that indicates whether the video has been downloaded before.
             If `True`, the function will update the download history instead of adding a new record.
         
-        `write_desc -> bool`: A flag that indicates whether to write the video description to a text file or not.
+        `write_desc -> bool`: A flag that indicates whether to write the video description into a text file or not.
     
     ---
-    Returns:
-        `tuple[str, dict[str, str]]` => A tuple containing the query and the parameters to be used for updating the database.
+    Returns: `tuple[str, dict[str, str]] | tuple[str, str, str]`:  
+        - Success: a tuple containing the query and parameters to be used for updating the database.  
+        - Failure: a tuple containing the video URL, video ID, and video title.
     """
     
     yt_opts |= {
@@ -234,6 +235,7 @@ def downloadFromYoutube(yt_opts: dict[str, object], meta: dict[str, object], fil
         "subtitleslangs": ["ar", "en"],
         "concurrent_fragment_downloads": "5",
         "compat_opts": {"no-keep-subs"},
+        'merge_output_format': 'mkv',
     }
     
     if not "postprocessors" in yt_opts:
@@ -254,12 +256,19 @@ def downloadFromYoutube(yt_opts: dict[str, object], meta: dict[str, object], fil
         {"key": "EmbedThumbnail", "already_have_thumbnail": False},
     ])
     
+    try:
+        with yt_dlp.YoutubeDL(yt_opts) as ydl:
+            if statusCode := ydl.download(meta["webpage_url"]):
+                console.print(f"[warning1]Warning! Download operation exitted with status code {statusCode}.[/]")
+                ProgressBar.downloads_dict.pop(meta["display_id"], None)  # type:ignore
+                
+                return (meta["webpage_url"], meta["display_id"], meta["fulltitle"])  # type:ignore
     
-    with yt_dlp.YoutubeDL(yt_opts) as ydl:
-        if statusCode := ydl.download(meta["webpage_url"]):
-            console.print(f"[warning1]Warning! Download operation exitted with status code {statusCode}.[/]")
-            
-            return tuple() # type: ignore
+    except:
+        console.print(f"[warning1]An error occurred while downloading the video with the ID: {meta['id']}.[/]")
+        ProgressBar.downloads_dict.pop(meta["display_id"], None)  # type:ignore
+        
+        return (meta["webpage_url"], meta["display_id"], meta["fulltitle"])  # type:ignore
     
     filename = os.path.splitext(os.path.basename(ydl.prepare_filename(meta)))[0]
     
@@ -276,8 +285,9 @@ def downloadFromYoutube(yt_opts: dict[str, object], meta: dict[str, object], fil
         "date": datetime.now().strftime("%Y/%m/%d %H:%M:%S")
     }
     
-    if write_desc and (not os.path.exists(f"{filename}.txt") or os.path.getsize(f"{filename}.txt") == 0):
-        with open(f"{filename}.txt", "w") as f:
+    descFullPath = os.path.join(download_location, f"{filename}.txt")
+    if write_desc and (not os.path.exists(descFullPath) or os.path.getsize(descFullPath) == 0):
+        with open(descFullPath, "w") as f:
             f.write(f"Title: {meta['title'].encode('utf-8')}\n\nLink: {meta['webpage_url'].encode('utf-8')}\n\nDescription:\n\n{meta['description'].encode('utf-8')}") # type: ignore
     
     return (query, params)

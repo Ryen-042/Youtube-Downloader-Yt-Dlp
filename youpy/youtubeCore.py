@@ -16,7 +16,7 @@ def downloadSingleVideo(video_link: str, write_desc=False, best_audio=False) -> 
     Parameters:
         `video_link -> str`: The link of the youtube video to download.
         
-        `write_desc -> bool`: A flag that indicates whether to write the video description to a text file or not. Defaults to `False`.
+        `write_desc -> bool`: A flag that indicates whether to write the video description into a text file or not. Defaults to `False`.
         
         `best_audio -> bool`: A flag that indicates whether to download only the audio stream with the highest quality without prompting the user for selection. Defaults to `False`.
     
@@ -77,16 +77,19 @@ def downloadSingleVideo(video_link: str, write_desc=False, best_audio=False) -> 
     download_dict["yt_opts"] |= {"outtmpl": os.path.join(downloadLocation, "%(title)s.%(ext)s")} # type: ignore
     
     query = dh.downloadFromYoutube(download_dict["yt_opts"], download_dict["meta"], download_dict["fileExtension"], downloadLocation, result is not None, write_desc) # type: ignore
-    c.execute(*query)
-    conn.commit()
+    
+    if len(query) == 2:
+        c.execute(*query)
+        conn.commit()
+    
     conn.close()
     
-    dh.showResults(download_dict["size"], download_dict["meta"]["duration"]) # type: ignore
+    dh.showResults(download_dict["size"], download_dict["meta"]["duration"]) # type:ignore
     
     return folderName
 
 
-def downloadYoutubePlaylist(playlist_link: str, start_from=0, end_with=0, write_desc=True, best_audio=False) -> str:
+def downloadYoutubePlaylist(playlist_link: str, start_from=0, end_with=0, write_desc=False, best_audio=False, show_playlist_table=False) -> str:
     """
     Description:
         Downloads one or more videos from a youtube playlist.
@@ -98,9 +101,11 @@ def downloadYoutubePlaylist(playlist_link: str, start_from=0, end_with=0, write_
         
         `end_with -> int`: The last playlist entry to download.
         
-        `write_desc -> bool`: A flag that indicates whether to write the video description to a text file for the selected entries. Defaults to `True`.
+        `write_desc -> bool`: A flag that indicates whether to write the video description for each entry into a text file. Defaults to `False`.
         
         `best_audio -> bool`: A flag that indicates whether to download only the audio stream with the highest quality without prompting the user for selection. Defaults to `False`.
+        
+        `show_playlist_table -> bool`: A flag that indicates whether to print the playlist videos table or not. Defaults to `False`.
     
     ---
     Returns:
@@ -136,25 +141,25 @@ def downloadYoutubePlaylist(playlist_link: str, start_from=0, end_with=0, write_
         c.execute("SELECT * FROM History WHERE video_id = ?", (entry["id"],))
         results.append(c.fetchone())
         entry["downloaded"] = results[-1] is not None
+
+    if show_playlist_table:
+        console.print("[normal1]Availabe video in the playlist:[/]\n")
+        sh.printPlaylistTable(playlistEntries)
+
+    console.print(fr"[normal1]Playlist: [normal2]{playlistMeta['title']}[/] \[[normal2]{len(playlistEntries)}[/] Videos][/]")
+    console.print(f"[normal1]{'='* (10 + len(playlistMeta['title']))}[/]\n")
     
-    console.print("[normal1]Availabe video in the playlist:[/]\n")
-    sh.printPlaylistTable(playlistEntries)
-    
-    console.print(fr"[normal1]Playlist: [normal2]{playlistMeta['title']}[/] \[[normal2]{len(playlistMeta['entries'])}[/] Videos][/]")
-    console.print(f"[normal1]{'='* (10 + len(playlistMeta['title']))}[/]")
-    
-    startEnd = sh.getPlaylistStartAndEnd(len(playlistMeta), start_from, end_with)
+    firstEntry, lastEntry = sh.getPlaylistStartAndEnd(len(playlistEntries), start_from, end_with)
     
     downloadThreads = []
     totalSize     = 0.0
     totalDuration = 0.0
     
-    
     if best_audio:
         dh.ProgressBar.enable_progress_bar = True
     
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
-        for i, entry in enumerate(playlistEntries[startEnd[0]-1:startEnd[1]], startEnd[0]):
+        for i, entry in enumerate(playlistEntries[firstEntry-1:lastEntry], firstEntry):
             video_link = entry["url"]
             video_id = entry['id']
             downloaded_before = entry["downloaded"]
@@ -200,14 +205,24 @@ def downloadYoutubePlaylist(playlist_link: str, start_from=0, end_with=0, write_
         
         dh.ProgressBar.enable_progress_bar = True
     
+    failedDownloads = []
     for future in downloadThreads:
         query = future.result()
-        c.execute(*query)
+        if len(query) == 2:
+            c.execute(*query)
+            conn.commit()
+        
+        else:
+            failedDownloads.append(query)
     
-    conn.commit()
     conn.close()
     
     dh.showResults(totalSize, totalDuration)
+    
+    if failedDownloads:
+            console.print("[warning1]The following downloads failed:[/]")
+            for download in failedDownloads:
+                console.print(f"[warning2]{download[1]}[/]")
     
     return folderName
 
@@ -220,7 +235,7 @@ def downloadMultipleYoutubeVideos(filename="video-links.txt", write_desc=False, 
     Parameters:
         `file_name -> str`: The name of the file containing the youtube video links.
         
-        `write_desc -> bool`: A flag that indicates whether to write the video description to a text file for the specified entries. Defaults to `False`.
+        `write_desc -> bool`: A flag that indicates whether to write the video description for each entry into a text file. Defaults to `False`.
         
         `best_audio -> bool`: A flag that indicates whether to download only the audio stream with the highest quality without prompting the user for selection. Defaults to `False`.
     
@@ -289,22 +304,31 @@ def downloadMultipleYoutubeVideos(filename="video-links.txt", write_desc=False, 
             
             download_dict["yt_opts"] |= {"outtmpl": os.path.join(downloadLocation, "%(title)s.%(ext)s")} # type: ignore
             
-            totalDuration += download_dict["meta"]["duration"] # type: ignore
-            totalSize     += download_dict["size"] # type: ignore
+            totalDuration += download_dict["meta"]["duration"] # type:ignore
+            totalSize     += download_dict["size"] # type:ignore
             
-            thread = executor.submit(dh.downloadFromYoutube, download_dict["yt_opts"], download_dict["meta"], download_dict["fileExtension"], downloadLocation, result is not None, write_desc) # type: ignore
+            thread = executor.submit(dh.downloadFromYoutube, download_dict["yt_opts"], download_dict["meta"], download_dict["fileExtension"], downloadLocation, result is not None, write_desc) # type:ignore
             downloadThreads.append(thread)
         
         dh.ProgressBar.enable_progress_bar = True
     
-    for future in downloadThreads:
+    failedDownloads = []
+    for i, future in enumerate(downloadThreads):
         query = future.result()
-        c.execute(*query)
+        if len(query) == 2:
+            c.execute(*query)
+            conn.commit()
+        else:
+            failedDownloads.append((query, i))
     
-    conn.commit()
     conn.close()
     
     dh.showResults(totalSize, totalDuration)
+    
+    if failedDownloads:
+        console.print("[warning1]The following downloads failed:[/]")
+        for download in failedDownloads:
+            console.print(f"[{download[1]}] [warning2]{download[0][2]}[/]")
     
     # Clearing the file's content.
     with open(filename, 'w') as file:

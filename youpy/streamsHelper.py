@@ -160,16 +160,16 @@ def printPlaylistTable(playlist_entries: list[dict[str, str | int]]) -> None:
         box=box.SQUARE,
     )
     
-    table.add_column("Index", justify="center")
+    table.add_column("Video Id", justify="center")
     table.add_column("Duration",  justify='left')
     table.add_column("Downloaded",  justify='center')
-    table.add_column("Name", justify="left", no_wrap=True)
+    table.add_column("Title", justify="left", no_wrap=True)
     
     for i, entry in enumerate(playlist_entries, 1):
         duration = divmod(entry["duration"], 60) if entry["duration"] else [-1, -1] # type: ignore
         durationStr = f"[normal2]{duration[0]:02}[/]:[normal2]{duration[1]:02}[/] min{'s' if duration[0] > 1 else ''}"
         
-        table.add_row(f"({i})", durationStr, f"{'[exists]Yes' if entry['downloaded'] else '[red]No'}[/]", str(entry["title"]))
+        table.add_row(f"({i}) {entry['id']}", durationStr, f"{'[exists]Yes' if entry['downloaded'] else '[red]No'}[/]", str(entry["title"]))
     
     console.print(table)
     print("")
@@ -414,9 +414,9 @@ def parseAndSelectStreams(video_number, video_link, video_id, yt_extra_opts=None
     groupedStreams = groupYoutubeStreams(meta["formats"])
     categoriesLengths = printStreamsTable(groupedStreams)
 
-    console.print(f"[normal1]Video #{f'{video_number}:<3' if video_number else 'Title '}: [normal2]{meta['title']}[/][/]")
-    console.print(f"[normal1]Duration    : [normal2]{meta['duration_string']}[/] min[/]", end="  |  ")
-    console.print(f"[normal1]Release Date: [normal2]{datetime.strptime(meta['upload_date'], '%Y%m%d').strftime('%d/%m/%Y')}[/][/]\n")
+    console.print(f"[normal1]Video {'{0:<5}'.format(f"[{video_number}]") if video_number else 'Title'}: [normal2]{meta['title']}[/][/]")
+    console.print(f"[normal1]Duration   : [normal2]{meta['duration_string']}[/] min[/]", end="  |  ")
+    console.print(f"[normal1]Release Date: [normal2]{datetime.strptime(meta['upload_date'], '%Y%m%d').strftime('%d/%m/%Y')}[/][/]  |  [normal1]Video Id: [normal2]{video_id}[/][/]\n")
 
     selectedStreams = selectStreams(categoriesLengths, groupedStreams)
     if not selectedStreams:
