@@ -174,7 +174,10 @@ def downloadYoutubePlaylist(playlist_link: str, start_from=0, end_with=0, write_
             
             yt_extra_opts = {
                 "noprogress": True,
-                "progress_hooks": [dh.ProgressBar.progressBarHook]
+                "progress_hooks": [dh.ProgressBar.progressBarHook],
+                "postprocessor_args": [
+                    "-metadata", f"comment=https://www.youtube.com/watch?v={video_id}&list={playlist_link.split('list=')[-1]}"
+                ]
             }
             
             if best_audio:
