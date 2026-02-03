@@ -2,6 +2,7 @@
 youpy/info.txt
 youpy/download_history.db
 youpy/videoLinks.txt
+youpy/test.py
 **/*playground*
 
 # Python
@@ -80,3 +81,8 @@ media
 
 # Backup files
 *.bak
+youpy/Translate.py
+youpy/video-links.txt
+
+# Unwanted files
+*.part

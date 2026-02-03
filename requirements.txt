@@ -3,3 +3,4 @@ questionary
 rich
 climage
 playsound==1.2.2
+flask
