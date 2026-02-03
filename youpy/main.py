@@ -150,7 +150,7 @@ def run():
         downloadBestAudio = False
         if any(arg in ("-ao", "--audio-only") for arg in sys.argv):
             downloadBestAudio = True
-            # sys.argv.remove("-ao") if "-ao" in sys.argv else sys.argv.remove("--audio-only")
+            sys.argv.remove("-ao") if "-ao" in sys.argv else sys.argv.remove("--audio-only")
         
         showPlaylistTable = False
         if any(arg in ("-spt", "--show-playlist-table") for arg in sys.argv):

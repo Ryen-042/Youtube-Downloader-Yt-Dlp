@@ -1,4 +1,4 @@
-.PHONY: run install install-reqs clean ruff flake8 lint
+.PHONY: run install install-reqs clean ruff flake8 lint update-modules probe
 
 .DEFAULT_GOAL := run
 
@@ -40,3 +40,12 @@ flake8:
 	@echo "Done."
 
 lint: ruff flake8
+
+update-modules:
+	@echo "Updating the modules..."
+	pip install --upgrade yt-dlp yt-dlp-ejs
+	@echo "Done."
+
+
+probe:
+	ffprobe ; <filename>

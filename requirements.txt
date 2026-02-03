@@ -1,4 +1,4 @@
-yt_dlp
+yt-dlp[default,curl-cffi]
 questionary
 rich
 climage

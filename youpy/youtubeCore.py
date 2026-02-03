@@ -49,7 +49,12 @@ def downloadSingleVideo(video_link: str, write_desc=False, best_audio=False) -> 
     
     yt_extra_opts = {
         "noprogress": True,
-        "progress_hooks": [dh.ProgressBar.progressBarHook]
+        "progress_hooks": [dh.ProgressBar.progressBarHook],
+        "js_runtimes": {
+            "node": {
+                "executable": r"C:\Program Files\nodejs\node.exe"
+            }
+        }
     }
     dh.ProgressBar.enable_progress_bar = True
     
@@ -115,6 +120,11 @@ def downloadYoutubePlaylist(playlist_link: str, start_from=0, end_with=0, write_
     yt_opts = {
         "quiet": True, 'noprogress': True,
         "consoletitle": True, "extract_flat": True,
+        "js_runtimes": {
+            "node": {
+                "executable": r"C:\Program Files\nodejs\node.exe"
+            }
+        }
     }
     
     with yt_dlp.YoutubeDL(yt_opts) as ydl:
@@ -177,7 +187,12 @@ def downloadYoutubePlaylist(playlist_link: str, start_from=0, end_with=0, write_
                 "progress_hooks": [dh.ProgressBar.progressBarHook],
                 "postprocessor_args": [
                     "-metadata", f"comment=https://www.youtube.com/watch?v={video_id}&list={playlist_link.split('list=')[-1]}"
-                ]
+                ],
+                "js_runtimes": {
+                    "node": {
+                        "executable": r"C:\Program Files\nodejs\node.exe"
+                    }
+                }
             }
             
             if best_audio:
@@ -284,7 +299,12 @@ def downloadMultipleYoutubeVideos(filename="video-links.txt", write_desc=False, 
             
             yt_extra_opts = {
                 "noprogress": True,
-                "progress_hooks": [dh.ProgressBar.progressBarHook]
+                "progress_hooks": [dh.ProgressBar.progressBarHook],
+                "js_runtimes": {
+                    "node": {
+                        "executable": r"C:\Program Files\nodejs\node.exe"
+                    }
+                }
             }
             
             if best_audio:

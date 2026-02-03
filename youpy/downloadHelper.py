@@ -232,11 +232,20 @@ def downloadFromYoutube(yt_opts: dict[str, object], meta: dict[str, object], fil
         "writeautomaticsub": True,
         "embedthumbnail": True,
         "embedsubtitles": True,
-        "subtitleslangs": ["ar", "en"],
+        "subtitleslangs": ["en"], # "ar", 
         "concurrent_fragment_downloads": "5",
         "compat_opts": {"no-keep-subs"},
-        'merge_output_format': 'mkv',
+        "merge_output_format": "mkv",
     }
+    
+    # if "postprocessor_args" not in yt_opts:
+        # yt_opts["postprocessor_args"] = []
+    
+    # # Add FFmpeg postprocessor args to prevent audio re-encoding
+    # # -c copy means "copy all codecs" (both audio and video streams)
+    # yt_opts["postprocessor_args"].extend([
+        # "-c", "copy",  # Copy all streams without re-encoding
+    # ])
     
     if not "postprocessors" in yt_opts:
         yt_opts["postprocessors"] = list()
