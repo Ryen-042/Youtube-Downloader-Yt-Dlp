@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YouPy - YouTube Downloader</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
+    <link href="{{ url_for('static', filename='style.css') }}" rel="stylesheet">
+</head>
+<body>
+    <div class="container-fluid">
+        <!-- Header -->
+        <header class="py-3 mb-4 border-bottom">
+            <div class="d-flex align-items-center">
+                <i class="bi bi-youtube text-danger fs-1 me-3"></i>
+                <h1 class="m-0">YouPy</h1>
+                <span class="badge bg-secondary ms-3">YouTube Downloader</span>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <div class="row">
+            <!-- Left Panel - Input Section -->
+            <div class="col-lg-8">
+                <!-- Tabs -->
+                <ul class="nav nav-tabs" id="mainTabs" role="tablist">
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link active" id="single-tab" data-bs-toggle="tab" data-bs-target="#single" type="button" role="tab">
+                            <i class="bi bi-play-circle"></i> Single Video
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="playlist-tab" data-bs-toggle="tab" data-bs-target="#playlist" type="button" role="tab">
+                            <i class="bi bi-collection-play"></i> Playlist
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="batch-tab" data-bs-toggle="tab" data-bs-target="#batch" type="button" role="tab">
+                            <i class="bi bi-files"></i> Batch
+                        </button>
+                    </li>
+                </ul>
+
+                <!-- Tab Content -->
+                <div class="tab-content p-4 border border-top-0 rounded-bottom" id="mainTabsContent">
+                    
+                    <!-- Single Video Tab -->
+                    <div class="tab-pane fade show active" id="single" role="tabpanel">
+                        <div class="mb-3">
+                            <label for="singleUrl" class="form-label">YouTube Video URL</label>
+                            <div class="input-group">
+                                <input type="url" class="form-control" id="singleUrl" placeholder="https://www.youtube.com/watch?v=...">
+                                <button class="btn btn-primary" type="button" id="fetchStreamsBtn">
+                                    <i class="bi bi-search"></i> Fetch Streams
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Video Info -->
+                        <div id="videoInfo" class="card mb-3 d-none">
+                            <div class="card-body">
+                                <div class="row">
+                                    <div class="col-md-4">
+                                        <img id="videoThumbnail" src="" alt="Thumbnail" class="img-fluid rounded">
+                                    </div>
+                                    <div class="col-md-8">
+                                        <h5 id="videoTitle" class="card-title"></h5>
+                                        <p class="card-text">
+                                            <small class="text-muted">
+                                                <i class="bi bi-clock"></i> <span id="videoDuration"></span>
+                                                <span class="ms-3"><i class="bi bi-calendar"></i> <span id="videoUploadDate"></span></span>
+                                            </small>
+                                        </p>
+                                        <span id="alreadyDownloaded" class="badge bg-success d-none">Already Downloaded</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Stream Selection -->
+                        <div id="streamSelection" class="d-none">
+                            <h5>Available Streams</h5>
+                            <div class="table-responsive">
+                                <table class="table table-hover table-sm" id="streamsTable">
+                                    <thead>
+                                        <tr>
+                                            <th>Select</th>
+                                            <th>Category</th>
+                                            <th>Quality</th>
+                                            <th>Size</th>
+                                            <th>TBR</th>
+                                            <th>Codec</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="streamsTableBody">
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <!-- Options -->
+                        <div class="row mb-3">
+                            <div class="col-auto">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="singleAudioOnly">
+                                    <label class="form-check-label" for="singleAudioOnly">
+                                        <i class="bi bi-music-note-beamed"></i> Audio Only (Best Quality)
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="col-auto">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="singleWriteDesc">
+                                    <label class="form-check-label" for="singleWriteDesc">
+                                        <i class="bi bi-file-text"></i> Save Description
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <button class="btn btn-success btn-lg" id="downloadSingleBtn" disabled>
+                            <i class="bi bi-download"></i> Download
+                        </button>
+                    </div>
+
+                    <!-- Playlist Tab -->
+                    <div class="tab-pane fade" id="playlist" role="tabpanel">
+                        <div class="mb-3">
+                            <label for="playlistUrl" class="form-label">YouTube Playlist URL</label>
+                            <div class="input-group">
+                                <input type="url" class="form-control" id="playlistUrl" placeholder="https://www.youtube.com/playlist?list=...">
+                                <button class="btn btn-primary" type="button" id="fetchPlaylistBtn">
+                                    <i class="bi bi-search"></i> Fetch Playlist
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Playlist Info -->
+                        <div id="playlistInfo" class="d-none">
+                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                <h5 id="playlistTitle" class="mb-0"></h5>
+                                <span class="badge bg-info" id="playlistCount"></span>
+                            </div>
+
+                            <!-- Range Selection -->
+                            <div class="row mb-3">
+                                <div class="col-md-3">
+                                    <label class="form-label">Start From</label>
+                                    <input type="number" class="form-control" id="playlistStart" min="1" value="1">
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label">End At</label>
+                                    <input type="number" class="form-control" id="playlistEnd" min="1">
+                                </div>
+                                <div class="col-md-6 d-flex align-items-end">
+                                    <button class="btn btn-outline-secondary" id="selectAllPlaylist">Select All</button>
+                                    <button class="btn btn-outline-secondary ms-2" id="selectRangePlaylist">Select Range</button>
+                                </div>
+                            </div>
+
+                            <!-- Playlist Table -->
+                            <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
+                                <table class="table table-hover table-sm">
+                                    <thead class="sticky-top bg-white">
+                                        <tr>
+                                            <th><input type="checkbox" id="selectAllCheckbox"></th>
+                                            <th>#</th>
+                                            <th>Title</th>
+                                            <th>Duration</th>
+                                            <th>Status</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="playlistTableBody">
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <!-- Options -->
+                        <div class="row mb-3 mt-3">
+                            <div class="col-auto">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="playlistAudioOnly">
+                                    <label class="form-check-label" for="playlistAudioOnly">
+                                        <i class="bi bi-music-note-beamed"></i> Audio Only (Best Quality)
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="col-auto">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="playlistWriteDesc">
+                                    <label class="form-check-label" for="playlistWriteDesc">
+                                        <i class="bi bi-file-text"></i> Save Descriptions
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <button class="btn btn-success btn-lg" id="downloadPlaylistBtn" disabled>
+                            <i class="bi bi-download"></i> Download Selected
+                        </button>
+                    </div>
+
+                    <!-- Batch Tab -->
+                    <div class="tab-pane fade" id="batch" role="tabpanel">
+                        <div class="mb-3">
+                            <label for="batchLinks" class="form-label">Video Links (one per line)</label>
+                            <textarea class="form-control" id="batchLinks" rows="10" placeholder="https://www.youtube.com/watch?v=...
+https://www.youtube.com/watch?v=...
+https://youtu.be/..."></textarea>
+                        </div>
+
+                        <div class="mb-3">
+                            <button class="btn btn-outline-secondary btn-sm" id="loadLinksBtn">
+                                <i class="bi bi-folder2-open"></i> Load from video-links.txt
+                            </button>
+                            <button class="btn btn-outline-secondary btn-sm ms-2" id="saveLinksBtn">
+                                <i class="bi bi-save"></i> Save to video-links.txt
+                            </button>
+                        </div>
+
+                        <!-- Options -->
+                        <div class="row mb-3">
+                            <div class="col-auto">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="batchAudioOnly">
+                                    <label class="form-check-label" for="batchAudioOnly">
+                                        <i class="bi bi-music-note-beamed"></i> Audio Only (Best Quality)
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="col-auto">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="batchWriteDesc">
+                                    <label class="form-check-label" for="batchWriteDesc">
+                                        <i class="bi bi-file-text"></i> Save Descriptions
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <button class="btn btn-success btn-lg" id="downloadBatchBtn">
+                            <i class="bi bi-download"></i> Download All
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Panel - Progress Section -->
+            <div class="col-lg-4">
+                <div class="card sticky-top" style="top: 20px;">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <span><i class="bi bi-activity"></i> Download Progress</span>
+                        <span class="badge bg-primary" id="activeDownloadsCount">0</span>
+                    </div>
+                    <div class="card-body" id="progressPanel" style="max-height: 500px; overflow-y: auto;">
+                        <p class="text-muted text-center" id="noDownloadsMsg">No active downloads</p>
+                        <!-- Progress items will be added here dynamically -->
+                    </div>
+                    
+                    <!-- Completed Downloads -->
+                    <div class="card-footer">
+                        <h6><i class="bi bi-check-circle"></i> Completed</h6>
+                        <div id="completedList" style="max-height: 200px; overflow-y: auto;">
+                            <p class="text-muted small mb-0">Completed downloads will appear here</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading Modal -->
+    <div class="modal fade" id="loadingModal" tabindex="-1" data-bs-backdrop="static">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-body text-center p-5">
+                    <div class="spinner-border text-primary mb-3" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    <p id="loadingMessage">Fetching data...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Container -->
+    <div class="toast-container position-fixed bottom-0 end-0 p-3">
+        <div id="toastNotification" class="toast" role="alert">
+            <div class="toast-header">
+                <i class="bi bi-info-circle me-2" id="toastIcon"></i>
+                <strong class="me-auto" id="toastTitle">Notification</strong>
+                <button type="button" class="btn-close" data-bs-dismiss="toast"></button>
+            </div>
+            <div class="toast-body" id="toastBody"></div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>
