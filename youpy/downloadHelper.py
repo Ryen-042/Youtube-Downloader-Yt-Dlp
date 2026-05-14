@@ -199,7 +199,7 @@ class ProgressBar:
 
 
 def downloadFromYoutube(yt_opts: dict[str, object], meta: dict[str, object], file_extension: str, download_location: str,
-                         downloaded_before=False, write_desc=False) -> tuple[str, dict[str, str]] | tuple[str, str, str]:
+                         downloaded_before=False, write_desc=False, download_subtitles=True) -> tuple[str, dict[str, str]] | tuple[str, str, str]:
     """
     Description:
         Downloads a YouTube video using the provided options, updates download history database, stores the video description into a text file.
@@ -217,6 +217,8 @@ def downloadFromYoutube(yt_opts: dict[str, object], meta: dict[str, object], fil
             If `True`, the function will update the download history instead of adding a new record.
         
         `write_desc -> bool`: A flag that indicates whether to write the video description into a text file or not.
+
+        `download_subtitles -> bool`: A flag that indicates whether subtitles should be downloaded and embedded.
     
     ---
     Returns: `tuple[str, dict[str, str]] | tuple[str, str, str]`:  
@@ -228,15 +230,19 @@ def downloadFromYoutube(yt_opts: dict[str, object], meta: dict[str, object], fil
         "checkformats": "selected",
         "addmetadata": True,
         "writethumbnail": True,
-        "writesubtitles": True,
-        "writeautomaticsub": True,
         "embedthumbnail": True,
-        "embedsubtitles": True,
-        "subtitleslangs": ["en"], # "ar", 
         "concurrent_fragment_downloads": "5",
-        "compat_opts": {"no-keep-subs"},
         "merge_output_format": "mkv",
     }
+
+    if download_subtitles:
+        yt_opts |= {
+            "writesubtitles": True,
+            "writeautomaticsub": True,
+            "embedsubtitles": True,
+            "subtitleslangs": ["en"],  # "ar",
+            "compat_opts": {"no-keep-subs"},
+        }
     
     # if "postprocessor_args" not in yt_opts:
         # yt_opts["postprocessor_args"] = []
@@ -253,7 +259,7 @@ def downloadFromYoutube(yt_opts: dict[str, object], meta: dict[str, object], fil
     if yt_opts["format"] == "bestaudio":
         yt_opts["postprocessors"].append({"key": "FFmpegExtractAudio", "preferredcodec": "m4a"}) # type: ignore
     
-    yt_opts["postprocessors"].extend([ # type: ignore
+    yt_opts["postprocessors"].extend([  # type: ignore
         # The order of the postprocessors is important as some of them may affect the output of the previous ones.
         {
             "key": "FFmpegMetadata",
@@ -261,9 +267,11 @@ def downloadFromYoutube(yt_opts: dict[str, object], meta: dict[str, object], fil
             "add_metadata": True,
             "add_infojson": "if_exists",
         },
-        {"key": "FFmpegEmbedSubtitle", "already_have_subtitle": False},
         {"key": "EmbedThumbnail", "already_have_thumbnail": False},
     ])
+
+    if download_subtitles:
+        yt_opts["postprocessors"].append({"key": "FFmpegEmbedSubtitle", "already_have_subtitle": False})  # type: ignore
     
     try:
         with yt_dlp.YoutubeDL(yt_opts) as ydl:

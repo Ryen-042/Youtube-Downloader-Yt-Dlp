@@ -8,7 +8,7 @@ import downloadHelper as dh
 import streamsHelper as sh
 
 
-def downloadSingleVideo(video_link: str, write_desc=False, best_audio=False) -> str:
+def downloadSingleVideo(video_link: str, write_desc=False, best_audio=False, download_subtitles=True) -> str:
     """
     Description:
         Downloads a single youtube video or audio file.
@@ -19,6 +19,8 @@ def downloadSingleVideo(video_link: str, write_desc=False, best_audio=False) -> 
         `write_desc -> bool`: A flag that indicates whether to write the video description into a text file or not. Defaults to `False`.
         
         `best_audio -> bool`: A flag that indicates whether to download only the audio stream with the highest quality without prompting the user for selection. Defaults to `False`.
+
+        `download_subtitles -> bool`: A flag that indicates whether to download and embed subtitles. Defaults to `True`.
     
     ---
     Returns:
@@ -81,7 +83,15 @@ def downloadSingleVideo(video_link: str, write_desc=False, best_audio=False) -> 
     # https://github.com/yt-dlp/yt-dlp/issues/630#issuecomment-893659460
     download_dict["yt_opts"] |= {"outtmpl": os.path.join(downloadLocation, "%(title)s.%(ext)s")} # type: ignore
     
-    query = dh.downloadFromYoutube(download_dict["yt_opts"], download_dict["meta"], download_dict["fileExtension"], downloadLocation, result is not None, write_desc) # type: ignore
+    query = dh.downloadFromYoutube(
+        download_dict["yt_opts"],
+        download_dict["meta"],
+        download_dict["fileExtension"],
+        downloadLocation,
+        result is not None,
+        write_desc,
+        download_subtitles,
+    )  # type: ignore
     
     if len(query) == 2:
         c.execute(*query)
@@ -94,7 +104,7 @@ def downloadSingleVideo(video_link: str, write_desc=False, best_audio=False) -> 
     return folderName
 
 
-def downloadYoutubePlaylist(playlist_link: str, start_from=0, end_with=0, write_desc=False, best_audio=False, show_playlist_table=False) -> str:
+def downloadYoutubePlaylist(playlist_link: str, start_from=0, end_with=0, write_desc=False, best_audio=False, show_playlist_table=False, download_subtitles=True) -> str:
     """
     Description:
         Downloads one or more videos from a youtube playlist.
@@ -111,6 +121,8 @@ def downloadYoutubePlaylist(playlist_link: str, start_from=0, end_with=0, write_
         `best_audio -> bool`: A flag that indicates whether to download only the audio stream with the highest quality without prompting the user for selection. Defaults to `False`.
         
         `show_playlist_table -> bool`: A flag that indicates whether to print the playlist videos table or not. Defaults to `False`.
+
+        `download_subtitles -> bool`: A flag that indicates whether to download and embed subtitles. Defaults to `True`.
     
     ---
     Returns:
@@ -218,9 +230,18 @@ def downloadYoutubePlaylist(playlist_link: str, start_from=0, end_with=0, write_
             totalDuration += download_dict["meta"]["duration"] # type: ignore
             totalSize     += download_dict["size"] # type: ignore
             
-            thread = executor.submit(dh.downloadFromYoutube, download_dict["yt_opts"], download_dict["meta"], download_dict["fileExtension"], downloadLocation, downloaded_before, write_desc) # type: ignore
+            thread = executor.submit(
+                dh.downloadFromYoutube,
+                download_dict["yt_opts"],
+                download_dict["meta"],
+                download_dict["fileExtension"],
+                downloadLocation,
+                downloaded_before,
+                write_desc,
+                download_subtitles,
+            )  # type: ignore
             downloadThreads.append(thread)
-        
+
         dh.ProgressBar.enable_progress_bar = True
     
     failedDownloads = []
@@ -245,7 +266,7 @@ def downloadYoutubePlaylist(playlist_link: str, start_from=0, end_with=0, write_
     return folderName
 
 
-def downloadMultipleYoutubeVideos(filename="video-links.txt", write_desc=False, best_audio=False) -> str:
+def downloadMultipleYoutubeVideos(filename="video-links.txt", write_desc=False, best_audio=False, download_subtitles=True) -> str:
     """
     Description:
         Download youtube videos with the links from the specified file.
@@ -256,6 +277,8 @@ def downloadMultipleYoutubeVideos(filename="video-links.txt", write_desc=False, 
         `write_desc -> bool`: A flag that indicates whether to write the video description for each entry into a text file. Defaults to `False`.
         
         `best_audio -> bool`: A flag that indicates whether to download only the audio stream with the highest quality without prompting the user for selection. Defaults to `False`.
+
+        `download_subtitles -> bool`: A flag that indicates whether to download and embed subtitles. Defaults to `True`.
     
     ---
     Returns:
@@ -330,7 +353,16 @@ def downloadMultipleYoutubeVideos(filename="video-links.txt", write_desc=False, 
             totalDuration += download_dict["meta"]["duration"] # type:ignore
             totalSize     += download_dict["size"] # type:ignore
             
-            thread = executor.submit(dh.downloadFromYoutube, download_dict["yt_opts"], download_dict["meta"], download_dict["fileExtension"], downloadLocation, result is not None, write_desc) # type:ignore
+            thread = executor.submit(
+                dh.downloadFromYoutube,
+                download_dict["yt_opts"],
+                download_dict["meta"],
+                download_dict["fileExtension"],
+                downloadLocation,
+                result is not None,
+                write_desc,
+                download_subtitles,
+            )  # type:ignore
             downloadThreads.append(thread)
         
         dh.ProgressBar.enable_progress_bar = True

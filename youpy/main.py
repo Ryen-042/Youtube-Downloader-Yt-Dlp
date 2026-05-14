@@ -32,6 +32,8 @@ Options/Flags:
     '[normal2]-st[/]' or '[normal2]--show-thumbnails[/]' -> Prints [normal2]video thumbnail[/] to the console.
 
     '[normal2]-spt[/]' or '[normal2]--show-playlist-table[/]' -> Determines whether to show the playlist videos table in playlist mode ot not. Defaults to `False`.
+
+    '[normal2]-ns[/]' or '[normal2]--no-subtitles[/]' -> Skips downloading and embedding subtitles.
 [/]""")
     
     sys.exit(0)
@@ -49,7 +51,7 @@ os.chdir(os.path.join(os.path.dirname(os.path.abspath(__file__))))
 os.makedirs(os.path.join(os.path.dirname(os.path.abspath(__file__)), "downloads"), exist_ok=True)
 
 
-def downloadSingleFile(video_link: str, write_desc=False, best_audio=False) -> tuple[bool, str]:
+def downloadSingleFile(video_link: str, write_desc=False, best_audio=False, download_subtitles=True) -> tuple[bool, str]:
     """
     Description:
         Download one youtube video.
@@ -60,6 +62,8 @@ def downloadSingleFile(video_link: str, write_desc=False, best_audio=False) -> t
         `write_desc -> bool`: A flag that indicates whether to write the video description into a text file or not. Defaults to `False`.
         
         `best_audio -> bool`: A flag that indicates whether to download the best audio stream only. Defaults to `False`.
+
+        `download_subtitles -> bool`: A flag that indicates whether subtitles should be downloaded and embedded. Defaults to `True`.
     
     ---
     Returns:
@@ -71,7 +75,7 @@ def downloadSingleFile(video_link: str, write_desc=False, best_audio=False) -> t
         video_link = input().strip()
         print("")
     
-    folderName = ytc.downloadSingleVideo(video_link=video_link, write_desc=write_desc, best_audio=best_audio)
+    folderName = ytc.downloadSingleVideo(video_link=video_link, write_desc=write_desc, best_audio=best_audio, download_subtitles=download_subtitles)
     
     continueChoice = tui.yesNoQuestion("Download another video?")
     print("")
@@ -79,7 +83,7 @@ def downloadSingleFile(video_link: str, write_desc=False, best_audio=False) -> t
     return continueChoice != 0, folderName
 
 
-def downloadPlaylist(playlist_link: str, from_video=0, to_video=0, write_desc=True, best_audio=False, show_playlist_table=False) -> tuple[bool, str]:
+def downloadPlaylist(playlist_link: str, from_video=0, to_video=0, write_desc=True, best_audio=False, show_playlist_table=False, download_subtitles=True) -> tuple[bool, str]:
     """
     Description:
         Downloads one or more videos from a youtube playlist.
@@ -96,6 +100,8 @@ def downloadPlaylist(playlist_link: str, from_video=0, to_video=0, write_desc=Tr
         `best_audio -> bool`: A flag that indicates whether to download the best audio stream only. Defaults to `False`.
         
         `show_playlist_table -> bool`: A flag that indicates whether to print the playlist videos table or not. Defaults to `False`.
+
+        `download_subtitles -> bool`: A flag that indicates whether subtitles should be downloaded and embedded. Defaults to `True`.
     
     ---
     Returns:
@@ -107,7 +113,15 @@ def downloadPlaylist(playlist_link: str, from_video=0, to_video=0, write_desc=Tr
         playlist_link = input().strip()
         print("")
     
-    folderName = ytc.downloadYoutubePlaylist(playlist_link, from_video, to_video, write_desc=write_desc, best_audio=best_audio, show_playlist_table=show_playlist_table)
+    folderName = ytc.downloadYoutubePlaylist(
+        playlist_link,
+        from_video,
+        to_video,
+        write_desc=write_desc,
+        best_audio=best_audio,
+        show_playlist_table=show_playlist_table,
+        download_subtitles=download_subtitles,
+    )
     
     continueChoice = tui.yesNoQuestion("Download another playlist?")
     print("")
@@ -155,6 +169,11 @@ def run():
         showPlaylistTable = False
         if any(arg in ("-spt", "--show-playlist-table") for arg in sys.argv):
             showPlaylistTable = True
+
+        downloadSubtitles = True
+        if any(arg in ("-ns", "--no-subtitles") for arg in sys.argv):
+            downloadSubtitles = False
+            sys.argv.remove("-ns") if "-ns" in sys.argv else sys.argv.remove("--no-subtitles")
         
         if choice == 4:
             videoLinks = []
@@ -177,17 +196,40 @@ def run():
         
         while True:
             if choice == 1:
-                continueOption, folderName = downloadSingleFile(linkFromTerminalArgument, write_desc=write_desc, best_audio=downloadBestAudio)
+                continueOption, folderName = downloadSingleFile(
+                    linkFromTerminalArgument,
+                    write_desc=write_desc,
+                    best_audio=downloadBestAudio,
+                    download_subtitles=downloadSubtitles,
+                )
             
             elif choice == 2:
-                folderName = ytc.downloadMultipleYoutubeVideos(write_desc=write_desc, best_audio=downloadBestAudio)
+                folderName = ytc.downloadMultipleYoutubeVideos(
+                    write_desc=write_desc,
+                    best_audio=downloadBestAudio,
+                    download_subtitles=downloadSubtitles,
+                )
                 continueOption = False
             
             elif choice == 3:
                 if len(sys.argv) > 4:
-                    continueOption, folderName = downloadPlaylist(playlist_link=linkFromTerminalArgument, from_video=int(sys.argv[3]), to_video=int(sys.argv[4]), write_desc=write_desc, best_audio=downloadBestAudio, show_playlist_table=showPlaylistTable)
+                    continueOption, folderName = downloadPlaylist(
+                        playlist_link=linkFromTerminalArgument,
+                        from_video=int(sys.argv[3]),
+                        to_video=int(sys.argv[4]),
+                        write_desc=write_desc,
+                        best_audio=downloadBestAudio,
+                        show_playlist_table=showPlaylistTable,
+                        download_subtitles=downloadSubtitles,
+                    )
                 else:
-                    continueOption, folderName = downloadPlaylist(playlist_link=linkFromTerminalArgument, write_desc=write_desc, best_audio=downloadBestAudio, show_playlist_table=showPlaylistTable)
+                    continueOption, folderName = downloadPlaylist(
+                        playlist_link=linkFromTerminalArgument,
+                        write_desc=write_desc,
+                        best_audio=downloadBestAudio,
+                        show_playlist_table=showPlaylistTable,
+                        download_subtitles=downloadSubtitles,
+                    )
             
             else:
                 console.print("[warning1]Invalid choice. Exiting...[/]")
